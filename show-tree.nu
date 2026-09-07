@@ -62,7 +62,8 @@ def run-du [
     max_depth: any
     min_size: any
 ] {
-    let actual_paths = if ($paths | is-empty) { ['.'] } else { $paths }
+    # An explicit absolute cwd keeps du on the same path-resolution code path as explicit user paths.
+    let actual_paths = if ($paths | is-empty) { [(pwd)] } else { $paths }
     let min_bytes = if $min_size == null { null } else { $min_size | into int }
 
     if $exclude == null {
