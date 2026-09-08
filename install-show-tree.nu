@@ -22,15 +22,17 @@ def main [] {
         }
     }
 
-    run-external $engine \
-        '-NoLogo' \
-        '-NoProfile' \
-        '-ExecutionPolicy' \
-        'Bypass' \
-        '-File' \
-        $POWERSHELL_INSTALLER \
+    let forwarded = [
+        '-NoLogo'
+        '-NoProfile'
+        '-ExecutionPolicy'
+        'Bypass'
+        '-File'
+        $POWERSHELL_INSTALLER
         '-NushellOnly'
+    ]
 
+    run-external $engine ...$forwarded
     let exit_code = $env.LAST_EXIT_CODE
     if $exit_code != 0 {
         error make { msg: $'Show-Tree Nushell installation failed with exit code ($exit_code).' }
