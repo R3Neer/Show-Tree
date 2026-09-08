@@ -25,9 +25,9 @@ jobs:
 
       - name: Syntax-check Nushell modules and installer
         run: |
-          nu --no-config-file -c "open --raw Show-Tree/show-tree.nu | nu-check --as-module | if not $in { exit 1 }"
-          nu --no-config-file -c "open --raw Show-Tree/show-tree-display.nu | nu-check --as-module | if not $in { exit 1 }"
-          nu --no-config-file -c "open --raw Show-Tree/install-show-tree.nu | nu-check | if not $in { exit 1 }"
+          nu --no-config-file -c 'open --raw Show-Tree/show-tree.nu | nu-check --as-module | if not $in { exit 1 }'
+          nu --no-config-file -c 'open --raw Show-Tree/show-tree-display.nu | nu-check --as-module | if not $in { exit 1 }'
+          nu --no-config-file -c 'open --raw Show-Tree/install-show-tree.nu | nu-check | if not $in { exit 1 }'
 
       - name: Test native pipeline output
         run: nu Show-Tree/tests/Nushell.Structured.nu
@@ -80,7 +80,9 @@ jobs:
           $env.SHOW_TREE_SENTINEL_AFTER = 'after'
           '@ | Set-Content -LiteralPath $nuConfig -Encoding utf8NoBOM
 
-          nu --no-config-file -c "if (open --raw '$($nuConfig.Replace('\','/'))' | nu-check) { exit 1 } else { exit 0 }"
+          $nuPath = $nuConfig.Replace('\', '/')
+          $checkCode = "if (open --raw '$nuPath' | nu-check) { exit 1 } else { exit 0 }"
+          nu --no-config-file -c $checkCode
 
       - name: Repair and install through the Nushell installer
         shell: pwsh
@@ -100,7 +102,13 @@ jobs:
           if (-not (Test-Path -LiteralPath $backup)) { throw 'Nushell config backup was not created.' }
           if ((Get-Content -LiteralPath $backup -Raw) -notmatch 'intentionally invalid') { throw 'Backup does not contain the pre-repair config.' }
 
-          nu --config $nuConfig -c "if $env.SHOW_TREE_SENTINEL_BEFORE != 'before' or $env.SHOW_TREE_SENTINEL_AFTER != 'after' { error make { msg: 'surrounding config did not load' } }; show-tree Show-Tree -d 0 | get 0.type | print"
+          $validationCode = @'
+          if $env.SHOW_TREE_SENTINEL_BEFORE != 'before' or $env.SHOW_TREE_SENTINEL_AFTER != 'after' {
+              error make { msg: 'surrounding config did not load' }
+          }
+          show-tree Show-Tree -d 0 | get 0.type | print
+          '@
+          nu --config $nuConfig -c $validationCode
 
       - name: Install PowerShell integration
         shell: pwsh
