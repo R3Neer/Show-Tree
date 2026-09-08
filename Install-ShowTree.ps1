@@ -12,20 +12,77 @@ $showTreePowerShell = Join-Path $showTreeRoot 'Show-Tree.ps1'
 $showTreeNushell = Join-Path $showTreeRoot 'show-tree.nu'
 $r3cliPowerShell = Join-Path $r3cliRoot 'dist\powershell\R3CLI\R3CLI.psd1'
 $r3cliNushell = Join-Path $r3cliRoot 'dist\nushell\r3cli'
+$r3cliPowerShellBuild = Join-Path $r3cliRoot 'scripts\build_powershell.py'
+$r3cliNushellBuild = Join-Path $r3cliRoot 'scripts\build_nushell.py'
 
-$requiredPaths = @(
+$requiredSourcePaths = @(
     $showTreePowerShell,
     $showTreeNushell,
-    $r3cliPowerShell,
-    $r3cliNushell
+    $r3cliPowerShellBuild,
+    $r3cliNushellBuild
 )
 
-foreach ($requiredPath in $requiredPaths) {
+foreach ($requiredPath in $requiredSourcePaths) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw (
-            "Required file was not found: '$requiredPath'. " +
+            "Required source file was not found: '$requiredPath'. " +
             "Keep Show-Tree and R3CLI as sibling repositories under the same parent directory."
         )
+    }
+}
+
+function Get-PythonInvocation {
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -ne $python) {
+        return [PSCustomObject]@{
+            Command = $python.Source
+            Prefix = @()
+        }
+    }
+
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($null -ne $py) {
+        return [PSCustomObject]@{
+            Command = $py.Source
+            Prefix = @('-3')
+        }
+    }
+
+    throw "Python 3.11 or newer is required to build the R3CLI shell adapters."
+}
+
+function Invoke-R3CliBuild {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Script,
+
+        [Parameter(Mandatory)]
+        [string]$Output
+    )
+
+    $python = Get-PythonInvocation
+    $arguments = @($python.Prefix) + @($Script, '--output', $Output)
+
+    & $python.Command @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "R3CLI build failed: '$Script'."
+    }
+}
+
+# R3CLI distributions are generated artifacts rather than committed files.
+# Rebuilding them here makes a fresh pair of sibling clones installable directly
+# and ensures a reinstall consumes the currently checked-out R3CLI sources.
+Invoke-R3CliBuild -Script $r3cliNushellBuild -Output $r3cliNushell
+Invoke-R3CliBuild -Script $r3cliPowerShellBuild -Output (Split-Path -Parent $r3cliPowerShell)
+
+$requiredBuiltPaths = @(
+    $r3cliPowerShell,
+    (Join-Path $r3cliNushell 'mod.nu')
+)
+
+foreach ($requiredPath in $requiredBuiltPaths) {
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw "R3CLI build did not produce the required file: '$requiredPath'."
     }
 }
 
@@ -121,10 +178,17 @@ if ($null -eq $nu) {
     throw "Nushell was not found in PATH."
 }
 
+# Do not load the user's existing Nu configuration while locating config.nu.
+# A stale Show-Tree import is exactly the kind of broken config this installer
+# needs to be able to repair after the repositories have moved.
 $nuConfigPath = (
-    & $nu.Source -c 'print --no-newline $nu.config-path' |
+    & $nu.Source --no-config-file -c 'print --no-newline $nu.config-path' |
         Out-String
 ).Trim()
+
+if ([string]::IsNullOrWhiteSpace($nuConfigPath)) {
+    throw "Nushell did not report a config path."
+}
 
 $nuScriptPath = $showTreeNushell.Replace("\", "/").Replace("'", "''")
 
@@ -149,6 +213,7 @@ Set-MarkedBlock `
     -EndMarker "# <<< Show-Tree <<<" `
     -Block $nuProfileBlock
 
+Write-Host "R3CLI shell adapters rebuilt from: $r3cliRoot"
 Write-Host "PowerShell profile updated: $powerShellProfile"
 Write-Host "Nushell config updated: $nuConfigPath"
 Write-Host "Show-Tree is available immediately in this PowerShell session."
