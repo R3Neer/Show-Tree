@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "tests" / "Nushell.ReplConfig.nu"
 
 PROMPT = re.compile(r">\s")
-CURSOR_POSITION_QUERY = "\x1b[6n"
+CURSOR_POSITION_QUERY = re.escape("\x1b[6n")
 CURSOR_POSITION_REPLY = "\x1b[1;1R"
 
 
