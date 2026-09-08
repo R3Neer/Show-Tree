@@ -14,7 +14,7 @@ const HELP_CATALOGUE = {
     'global-items': [
         { label: 'path', description: 'Starting path(s). Defaults to the current directory.' }
         { label: '-r, --deref / -Dereference', description: 'Use target metadata for symbolic-link sizes.' }
-        { label: '-l, --long / -Long', description: 'Include file nodes in rendered and structured trees.' }
+        { label: '-l, --long / -Long', description: 'Include file rows in rendered and structured trees.' }
         { label: '-x, --exclude / -Exclude', description: 'Exclude matching file paths.' }
         { label: '-d, --max-depth / -MaxDepth', description: 'Limit directory recursion. Zero means root only.' }
         { label: '-m, --min-size / -MinSize', description: 'Exclude files below this logical size.' }
@@ -23,13 +23,16 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Every call returns native Nushell records. Direct interactive calls also render the R3CLI tree.'
-        'Long controls file-node visibility; traversal still gathers files to calculate sizes and empty folders.'
+        'Nushell output is a flat native table: tree, name, type, size, depth and path.'
+        'Direct interactive results are rendered as the R3CLI tree by the installed display integration.'
+        'Pipe to table, to json, where, sort-by or any other Nushell command to work with the rows directly.'
+        'Long controls file-row visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
         'show-tree'
         'show-tree . -d 2'
         'show-tree . -l -e'
+        'show-tree . -d 2 | table'
         'show-tree . -d 2 | to json'
     ]
     'help-options': ['-h' '--help']
@@ -38,23 +41,6 @@ const HELP_CATALOGUE = {
 export def show-tree-help [] {
     let ui = (r3cli console --colour auto)
     r3cli help $ui $HELP_CATALOGUE
-}
-
-def format-tree-size [bytes: int] {
-    if $bytes >= 1099511627776 {
-        return $"((($bytes | into float) / 1099511627776.0) | into string --decimals 2) TiB"
-    }
-    if $bytes >= 1073741824 {
-        return $"((($bytes | into float) / 1073741824.0) | into string --decimals 2) GiB"
-    }
-    if $bytes >= 1048576 {
-        return $"((($bytes | into float) / 1048576.0) | into string --decimals 2) MiB"
-    }
-    if $bytes >= 1024 {
-        return $"((($bytes | into float) / 1024.0) | into string --decimals 2) KiB"
-    }
-
-    $"($bytes) B"
 }
 
 def run-du [
@@ -172,25 +158,9 @@ def visible-children [
     }
 }
 
-def to-pipeline-node [
-    node: record
-    long: bool
-    hide_empty_folders: bool
-] {
-    let children = if $node.kind == 'Folder' {
-        visible-children $node $long $hide_empty_folders
-        | each {|child| to-pipeline-node $child $long $hide_empty_folders }
-    } else {
-        []
-    }
-
-    {
-        name: $node.name
-        type: (if $node.kind == 'Folder' { 'dir' } else { 'file' })
-        path: $node.full_name
-        size: ($node.size_bytes | into filesize)
-        children: $children
-    }
+def display-name [node: record]: nothing -> string {
+    let candidate = ($node.name | default '' | into string)
+    if ($candidate | str trim) == '' { $node.full_name } else { $candidate }
 }
 
 def tree-prefix [
@@ -208,55 +178,82 @@ def tree-prefix [
     $prefix + (if $is_last { '└── ' } else { '├── ' })
 }
 
-def render-node-line [
-    ui: record
+def to-table-row [
     node: record
-    prefix: string
-    root: bool
-] {
-    let label = if $root { $node.full_name } else { $node.name }
-    let size_text = (format-tree-size $node.size_bytes)
-
-    if $node.kind == 'Folder' {
-        r3cli line $ui [
-            { text: $prefix, role: 'secondary' }
-            { text: $label, role: 'heading', bold: true }
-            { text: ' [Folder] ', role: 'secondary' }
-            { text: ('(' + $size_text + ')'), role: 'value' }
-        ]
-        return
+    tree_label: string
+    depth: int
+]: nothing -> record {
+    {
+        tree: $tree_label
+        name: (display-name $node)
+        type: (if $node.kind == 'Folder' { 'dir' } else { 'file' })
+        size: ($node.size_bytes | into filesize)
+        depth: $depth
+        path: $node.full_name
     }
-
-    r3cli line $ui [
-        { text: $prefix, role: 'secondary' }
-        { text: $label, role: 'accent' }
-        { text: (' (' + $size_text + ')'), role: 'secondary' }
-    ]
 }
 
-def render-tree-children [
-    ui: record
+def flatten-child [
     node: record
     long: bool
     hide_empty_folders: bool
     ancestor_last: list<bool>
-] {
-    let children = (visible-children $node $long $hide_empty_folders)
+    is_last: bool
+    depth: int
+]: nothing -> list<record> {
+    let prefix = (tree-prefix $ancestor_last $is_last)
+    let row = (to-table-row $node ($prefix + (display-name $node)) $depth)
 
-    for row in ($children | enumerate) {
-        let child = $row.item
-        let is_last = ($row.index == (($children | length) - 1))
-        let prefix = (tree-prefix $ancestor_last $is_last)
-
-        render-node-line $ui $child $prefix false
-
-        if $child.kind == 'Folder' {
-            render-tree-children $ui $child $long $hide_empty_folders ([...$ancestor_last $is_last])
-        }
+    if $node.kind != 'Folder' {
+        return [$row]
     }
+
+    let children = (visible-children $node $long $hide_empty_folders)
+    let descendants = (
+        $children
+        | enumerate
+        | each {|item|
+            let child_is_last = ($item.index == (($children | length) - 1))
+            flatten-child \
+                $item.item \
+                $long \
+                $hide_empty_folders \
+                ([...$ancestor_last $is_last]) \
+                $child_is_last \
+                ($depth + 1)
+        }
+        | reduce --fold [] {|part, acc| $acc ++ $part }
+    )
+
+    [$row ...$descendants]
 }
 
-# Long changes node visibility only; the backend always requests du --long to obtain structured children.
+def flatten-root [
+    root: record
+    long: bool
+    hide_empty_folders: bool
+]: nothing -> list<record> {
+    let row = (to-table-row $root $root.full_name 0)
+
+    if $root.kind != 'Folder' {
+        return [$row]
+    }
+
+    let children = (visible-children $root $long $hide_empty_folders)
+    let descendants = (
+        $children
+        | enumerate
+        | each {|item|
+            let child_is_last = ($item.index == (($children | length) - 1))
+            flatten-child $item.item $long $hide_empty_folders [] $child_is_last 1
+        }
+        | reduce --fold [] {|part, acc| $acc ++ $part }
+    )
+
+    [$row ...$descendants]
+}
+
+# Long changes row visibility only; the backend always requests du --long to obtain structured children.
 export def main [
     --deref (-r)
     --long (-l)
@@ -287,47 +284,17 @@ export def main [
 
     let result = (
         $roots
-        | each {|root| to-pipeline-node $root $long $hide_empty_folders }
+        | each {|root| flatten-root $root $long $hide_empty_folders }
+        | reduce --fold [] {|part, acc| $acc ++ $part }
     )
-
-    if not $redirected {
-        let ui = (r3cli console --colour auto)
-        r3cli banner $ui 'SHOW-TREE'
-
-        if ($roots | is-empty) {
-            r3cli status $ui warning 'No matching paths.'
-        } else {
-            for row in ($roots | enumerate) {
-                let root = $row.item
-
-                if $row.index > 0 {
-                    r3cli line $ui
-                }
-
-                render-node-line $ui $root '' true
-
-                if $root.kind == 'Folder' {
-                    render-tree-children $ui $root $long $hide_empty_folders []
-                }
-            }
-
-            let total = (
-                $roots
-                | reduce --fold 0 {|root, acc| $acc + $root.size_bytes }
-            )
-
-            r3cli line $ui
-            r3cli key-value $ui 'Total size' (format-tree-size $total)
-        }
-    }
 
     if $redirected {
         $result
     } else {
-        # show-tree-display.nu consumes this metadata for direct interactive calls.
-        # The native value still reaches Nushell's result machinery, including
-        # $ans.last, without being rendered a second time as an automatic table.
-        $result | metadata set {|| merge { show_tree_pre_rendered: true } }
+        # The display integration recognizes this metadata and renders the native
+        # rows as the R3CLI tree. Because the command itself prints nothing, the
+        # same native value can later be displayed again through $ans.last.
+        $result | metadata set {|| merge { show_tree_result: true } }
     }
 }
 
