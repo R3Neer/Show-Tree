@@ -65,7 +65,7 @@ jobs:
 
       - name: Validate Nushell profile import and structured output
         shell: pwsh
-        run: nu -c 'show-tree Show-Tree -d 0 | get 0.type | print'
+        run: nu -i -c 'show-tree Show-Tree -d 0 | get 0.type | print'
 
       - name: Validate PowerShell profile import
         shell: pwsh
