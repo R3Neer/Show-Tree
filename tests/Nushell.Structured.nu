@@ -3,7 +3,7 @@ use std/assert
 const SHOW_TREE = (path self ../show-tree.nu)
 use $SHOW_TREE [main]
 
-let fixture = ($nu.temp-path | path join $"show-tree-structured-(random uuid)")
+let fixture = ($nu.temp-dir | path join $"show-tree-structured-(random uuid)")
 let alpha = ($fixture | path join 'alpha')
 let empty = ($fixture | path join 'empty')
 
