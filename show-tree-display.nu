@@ -1,9 +1,9 @@
 # Show-Tree display integration for interactive Nushell sessions.
 #
 # `show-tree.nu` owns traversal and structured data. This module owns only the
-# interactive presentation policy: marked Show-Tree rows render as the R3CLI
-# tree, while every other value continues through the user's previous display
-# hook unchanged.
+# interactive presentation policy: an unchanged marked Show-Tree value renders as
+# the R3CLI tree, while transformed values continue through Nushell's normal
+# display path.
 
 const R3CLI_MODULE = (path self vendor/R3CLI/nushell/r3cli)
 use $R3CLI_MODULE
@@ -29,8 +29,9 @@ def format-tree-size [value: any]: nothing -> string {
 }
 
 
-export def show-tree-render []: list<any> -> nothing {
-    let rows = $in
+# Exported because Nushell may store `display_output` as source text. The source
+# hook resolves this command when it is evaluated later by the REPL.
+export def show-tree-render-internal [rows: list<any>]: nothing -> nothing {
     let ui = (r3cli console --colour auto)
 
     r3cli banner $ui 'SHOW-TREE'
@@ -76,6 +77,32 @@ export def show-tree-render []: list<any> -> nothing {
 }
 
 
+# Presentation metadata belongs to the exact native value produced by Show-Tree.
+# If a user filters, sorts, selects or otherwise changes the rows, fall back to
+# Nushell's normal display instead of drawing a stale hierarchy.
+export def show-tree-can-render-internal [meta: record, value: any]: nothing -> bool {
+    if ((($meta | get --optional show_tree_result) | default false) != true) {
+        return false
+    }
+
+    let render_rows = ($meta | get --optional show_tree_render)
+    if $render_rows == null or (($value | describe) !~ '^list') {
+        return false
+    }
+
+    if ($value | is-empty) {
+        return ($render_rows | is-empty)
+    }
+
+    let columns = ($value | columns)
+    if 'path' not-in $columns {
+        return false
+    }
+
+    ($value | get path) == ($render_rows | get path)
+}
+
+
 export-env {
     let already_installed = ($env.SHOW_TREE_DISPLAY_HOOK_INSTALLED? | default false)
 
@@ -84,10 +111,10 @@ export-env {
         let previous_display_type = ($previous_display_output | describe)
 
         if $previous_display_type == 'string' {
-            # Nushell evaluates string display hooks as source. Preserve that
-            # source and intercept only a marked list result from Show-Tree.
+            # Preserve Nushell's string-hook contract. The helper commands keep
+            # this generated source short enough to audit and stable across upgrades.
             let wrapped_display_source = (
-                "metadata access {|meta| if ((($meta | get --optional show_tree_result) | default false) == true) and (($in | describe) =~ '^list') { $in | show-tree-render } else { $in | do { "
+                "metadata access {|meta| if (show-tree-can-render-internal $meta $in) { show-tree-render-internal ($meta | get show_tree_render) } else { $in | do { "
                 + $previous_display_output
                 + " } } }"
             )
@@ -95,13 +122,8 @@ export-env {
         } else {
             $env.config.hooks.display_output = {
                 metadata access {|meta|
-                    let is_show_tree = (
-                        ((($meta | get --optional show_tree_result) | default false) == true)
-                        and (($in | describe) =~ '^list')
-                    )
-
-                    if $is_show_tree {
-                        $in | show-tree-render
+                    if (show-tree-can-render-internal $meta $in) {
+                        show-tree-render-internal ($meta | get show_tree_render)
                     } else if $previous_display_output == null {
                         $in | table
                     } else {
