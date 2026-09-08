@@ -116,14 +116,14 @@ Run the installer from the Show-Tree checkout:
 .\Install-ShowTree.ps1
 ```
 
-The installer discovers both repositories from its own location, validates the required R3CLI distributions, adds `Show-Tree` to the PowerShell all-hosts profile, imports the Nushell commands from `config.nu`, and shadows the legacy Windows `tree` command with a warning before forwarding to `tree.com`.
+The installer discovers both repositories from its own location, rebuilds the deterministic R3CLI PowerShell and Nushell distributions from the sibling checkout, updates the PowerShell all-hosts profile, imports the Nushell commands from `config.nu`, and shadows the legacy Windows `tree` command with a warning before forwarding to `tree.com`.
 
-The Nushell module also resolves its R3CLI dependency relative to its own file, so moving the sibling pair together does not require editing a hard-coded path.
+The installer asks Nushell for its configuration path with configuration loading disabled, so it can repair a stale Show-Tree import after the repositories have been moved. The Show-Tree implementations resolve R3CLI relative to their own checkout rather than embedding a machine-specific path.
 
 ## Requirements
 
 - PowerShell 7
 - Nushell 0.115+
-- R3CLI built for both PowerShell and Nushell
+- Python 3.11+ at installation time to build the R3CLI shell distributions
 - Show-Tree and R3CLI checked out as sibling directories
-- Windows for the legacy `tree.com` forwarding wrapper
+- Windows for the installer and legacy `tree.com` forwarding wrapper
