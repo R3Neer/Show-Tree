@@ -30,38 +30,50 @@ def read_to_prompt(child: pexpect.spawn) -> str:
     return expect_while_answering_cpr(child, PROMPT)
 
 
+def run_and_collect(child: pexpect.spawn, command: str, target: str | re.Pattern[str]) -> str:
+    child.sendline(command)
+    output = expect_while_answering_cpr(child, target)
+    output += read_to_prompt(child)
+    return output
+
+
 def main() -> None:
     child = pexpect.spawn(
         "nu",
         ["--config", str(CONFIG)],
         cwd=str(ROOT.parent),
         encoding="utf-8",
-        timeout=20,
-        dimensions=(40, 140),
+        timeout=25,
+        dimensions=(50, 160),
     )
 
     try:
         read_to_prompt(child)
 
-        # Reedline may repaint the prompt while accepting Enter. Synchronize on
-        # the command's own output first, then consume through the next prompt.
-        child.sendline("show-tree Show-Tree -d 0")
-        rendered = expect_while_answering_cpr(child, "SHOW-TREE")
-        rendered += read_to_prompt(child)
+        rendered = run_and_collect(child, "show-tree Show-Tree -d 1", "SHOW-TREE")
         if "╭" in rendered:
             raise AssertionError(
-                "The native Show-Tree result was displayed a second time as a Nushell table."
+                "A direct Show-Tree call should render the R3CLI tree, not the native table."
             )
 
-        child.sendline("$ans.last.0.type")
-        ans_output = expect_while_answering_cpr(child, re.compile(r"\bdir\b"))
-        ans_output += read_to_prompt(child)
-        if not re.search(r"\bdir\b", ans_output):
-            raise AssertionError(f"$ans.last did not retain the native result:\n{ans_output}")
+        repeated = run_and_collect(child, "$ans.last", "SHOW-TREE")
+        if "╭" in repeated:
+            raise AssertionError(
+                "$ans.last should redisplay the Show-Tree value as the same R3CLI tree."
+            )
 
-        child.sendline("[1 2]")
-        normal_output = expect_while_answering_cpr(child, "╭")
-        normal_output += read_to_prompt(child)
+        explicit_table = run_and_collect(child, "$ans.last | table", "╭")
+        for expected in ("tree", "name", "type", "size", "depth", "path"):
+            if expected not in explicit_table:
+                raise AssertionError(
+                    f"Explicit table output is missing the {expected!r} column:\n{explicit_table}"
+                )
+        if "[table" in explicit_table:
+            raise AssertionError(
+                "Explicit table output collapsed descendants into nested table placeholders."
+            )
+
+        normal_output = run_and_collect(child, "[1 2]", "╭")
         if "╭" not in normal_output:
             raise AssertionError(
                 "Show-Tree's display hook did not preserve the previous/default table renderer."
