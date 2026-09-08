@@ -23,8 +23,10 @@ Both implementations share the same filesystem contract:
 
 `show-tree` always returns native Nushell values. Presentation depends on the destination:
 
-- A direct interactive call renders the normal R3CLI tree and returns the native value with metadata marking it as already rendered. The installer adds a `display_output` hook that suppresses only that duplicate automatic table while preserving any display hook the user already had.
+- A direct interactive call renders the normal R3CLI tree and returns the native value with metadata marking it as already rendered. The installed display integration suppresses only that duplicate automatic table while preserving the previous display hook.
 - Piped, redirected, captured and subexpression calls return the same native values without rendering the R3CLI tree.
+
+The display integration lives in the repository file `show-tree-display.nu`; the installer no longer injects the full hook implementation into the user's `config.nu`.
 
 Each returned node has this shape:
 
@@ -99,13 +101,28 @@ show-tree D:/Projects -d 2 | to json
 
 ## Installation
 
-Clone or download Show-Tree and run its installer:
+For PowerShell and Nushell together:
 
 ```powershell
 .\Install-ShowTree.ps1
 ```
 
-The installer verifies the bundled R3CLI dependency against `dependencies.json`, updates the PowerShell all-hosts profile, imports the Nushell commands from `config.nu`, installs the Nushell display hook described above, and shadows the legacy Windows `tree` command with a warning before forwarding to `tree.com`.
+For Nushell only:
+
+```nu
+nu --no-config-file ./install-show-tree.nu
+```
+
+Using `--no-config-file` is intentional: it lets the installer repair a broken previous Show-Tree block even when the current `config.nu` cannot be loaded.
+
+The PowerShell installer also supports shell-specific operation:
+
+```powershell
+.\Install-ShowTree.ps1 -PowerShellOnly
+.\Install-ShowTree.ps1 -NushellOnly
+```
+
+The installer verifies the bundled R3CLI dependency against `dependencies.json`. Nushell config updates are upgrade-safe: an existing marked Show-Tree block is replaced in place rather than removed and appended elsewhere, the complete candidate config is checked with `nu-check` before writing, and the previous config is backed up as `config.nu.show-tree.bak`. Ambiguous or mismatched Show-Tree markers cause the installer to stop without modifying the file.
 
 The dependency is private to Show-Tree. It is loaded from `vendor/R3CLI` and never requires an R3CLI repository beside Show-Tree or an R3CLI installation on `PSModulePath`.
 
