@@ -10,11 +10,19 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "tests" / "Nushell.ReplConfig.nu"
 
 PROMPT = re.compile(r">\s")
+CURSOR_POSITION_QUERY = "\x1b[6n"
+CURSOR_POSITION_REPLY = "\x1b[1;1R"
 
 
 def read_to_prompt(child: pexpect.spawn) -> str:
-    child.expect(PROMPT)
-    return child.before
+    """Read to the Nushell prompt while emulating terminal CPR responses."""
+    chunks: list[str] = []
+    while True:
+        match = child.expect([PROMPT, CURSOR_POSITION_QUERY])
+        chunks.append(child.before)
+        if match == 0:
+            return "".join(chunks)
+        child.send(CURSOR_POSITION_REPLY)
 
 
 def main() -> None:
