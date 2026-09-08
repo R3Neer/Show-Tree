@@ -23,6 +23,12 @@ jobs:
         with:
           version: '0.115.1'
 
+      - name: Syntax-check Nushell modules and installer
+        run: |
+          nu --no-config-file -c "open --raw Show-Tree/show-tree.nu | nu-check --as-module | if not $in { exit 1 }"
+          nu --no-config-file -c "open --raw Show-Tree/show-tree-display.nu | nu-check --as-module | if not $in { exit 1 }"
+          nu --no-config-file -c "open --raw Show-Tree/install-show-tree.nu | nu-check | if not $in { exit 1 }"
+
       - name: Test native pipeline output
         run: nu Show-Tree/tests/Nushell.Structured.nu
 
@@ -54,23 +60,62 @@ jobs:
           Copy-Item -Recurse -Force ./Show-Tree $copy
           Add-Content -LiteralPath (Join-Path $copy 'vendor/R3CLI/powershell/resources.json') -Value ' '
           try {
-              & (Join-Path $copy 'Install-ShowTree.ps1')
+              & (Join-Path $copy 'Install-ShowTree.ps1') -PowerShellOnly
               throw 'Corrupt dependency was unexpectedly accepted.'
           }
           catch {
               if ($_.Exception.Message -notmatch 'SHA256 verification') { throw }
           }
 
-      - name: Install Show-Tree
-        shell: pwsh
-        run: ./Show-Tree/Install-ShowTree.ps1
-
-      - name: Validate Nushell profile import and structured output
+      - name: Seed a broken previous Show-Tree config block
         shell: pwsh
         run: |
           $nuConfig = (& nu --no-config-file -c 'print --no-newline $nu.config-path' | Out-String).Trim()
-          nu --config $nuConfig -c 'show-tree Show-Tree -d 0 | get 0.type | print'
+          New-Item -ItemType Directory -Path (Split-Path -Parent $nuConfig) -Force | Out-Null
+          @'
+          $env.SHOW_TREE_SENTINEL_BEFORE = 'before'
+          # >>> Show-Tree >>>
+          this old installer block is intentionally invalid [
+          # <<< Show-Tree <<<
+          $env.SHOW_TREE_SENTINEL_AFTER = 'after'
+          '@ | Set-Content -LiteralPath $nuConfig -Encoding utf8NoBOM
+
+          nu --no-config-file -c "if (open --raw '$($nuConfig.Replace('\','/'))' | nu-check) { exit 1 } else { exit 0 }"
+
+      - name: Repair and install through the Nushell installer
+        shell: pwsh
+        run: nu --no-config-file ./Show-Tree/install-show-tree.nu
+
+      - name: Validate repaired config, backup and Nushell command
+        shell: pwsh
+        run: |
+          $nuConfig = (& nu --no-config-file -c 'print --no-newline $nu.config-path' | Out-String).Trim()
+          $text = Get-Content -LiteralPath $nuConfig -Raw
+          if (($text | Select-String -Pattern '# >>> Show-Tree >>>' -AllMatches).Matches.Count -ne 1) { throw 'Expected one Show-Tree start marker.' }
+          if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Expected one Show-Tree end marker.' }
+          if ($text.IndexOf('SHOW_TREE_SENTINEL_BEFORE') -gt $text.IndexOf('# >>> Show-Tree >>>')) { throw 'Installer moved the Show-Tree block ahead of preceding config.' }
+          if ($text.IndexOf('SHOW_TREE_SENTINEL_AFTER') -lt $text.IndexOf('# <<< Show-Tree <<<')) { throw 'Installer moved the Show-Tree block behind following config.' }
+
+          $backup = $nuConfig + '.show-tree.bak'
+          if (-not (Test-Path -LiteralPath $backup)) { throw 'Nushell config backup was not created.' }
+          if ((Get-Content -LiteralPath $backup -Raw) -notmatch 'intentionally invalid') { throw 'Backup does not contain the pre-repair config.' }
+
+          nu --config $nuConfig -c "if $env.SHOW_TREE_SENTINEL_BEFORE != 'before' or $env.SHOW_TREE_SENTINEL_AFTER != 'after' { error make { msg: 'surrounding config did not load' } }; show-tree Show-Tree -d 0 | get 0.type | print"
+
+      - name: Install PowerShell integration
+        shell: pwsh
+        run: ./Show-Tree/Install-ShowTree.ps1 -PowerShellOnly
 
       - name: Validate PowerShell profile import
         shell: pwsh
         run: pwsh -Command 'Show-Tree Show-Tree -MaxDepth 0'
+
+      - name: Reinstall both integrations idempotently
+        shell: pwsh
+        run: |
+          ./Show-Tree/Install-ShowTree.ps1
+          $nuConfig = (& nu --no-config-file -c 'print --no-newline $nu.config-path' | Out-String).Trim()
+          $text = Get-Content -LiteralPath $nuConfig -Raw
+          if (($text | Select-String -Pattern '# >>> Show-Tree >>>' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated the Show-Tree start marker.' }
+          if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated the Show-Tree end marker.' }
+          nu --config $nuConfig -c 'show-tree Show-Tree -d 0 | get 0.type | print'
