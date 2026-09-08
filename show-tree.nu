@@ -1,8 +1,9 @@
-use 'D:/OneDrive/Documentos Samuel/Herramientas software/R3CLI/dist/nushell/r3cli'
+const R3CLI_MODULE = (path self ../R3CLI/dist/nushell/r3cli)
+use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '1.0.0'
+    version: '0.1.0'
     description: 'Displays a size-aware filesystem tree with depth, size and visibility filtering.'
     invocation: 'show-tree'
     groups: []
@@ -13,7 +14,7 @@ const HELP_CATALOGUE = {
     'global-items': [
         { label: 'path', description: 'Starting path(s). Defaults to the current directory.' }
         { label: '-r, --deref / -Dereference', description: 'Use target metadata for symbolic-link sizes.' }
-        { label: '-l, --long / -Long', description: 'Include files in the rendered tree.' }
+        { label: '-l, --long / -Long', description: 'Include file nodes in rendered and structured trees.' }
         { label: '-x, --exclude / -Exclude', description: 'Exclude matching file paths.' }
         { label: '-d, --max-depth / -MaxDepth', description: 'Limit directory recursion. Zero means root only.' }
         { label: '-m, --min-size / -MinSize', description: 'Exclude files below this logical size.' }
@@ -22,12 +23,14 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Long controls rendering only; traversal still gathers files to calculate sizes and empty folders.'
+        'Interactive calls render the R3CLI tree. Redirected or captured calls return native Nushell records.'
+        'Long controls file-node visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
         'show-tree'
         'show-tree . -d 2'
         'show-tree . -l -e'
+        'show-tree . -d 2 | to json'
     ]
     'help-options': ['-h' '--help']
 }
@@ -169,6 +172,27 @@ def visible-children [
     }
 }
 
+def to-pipeline-node [
+    node: record
+    long: bool
+    hide_empty_folders: bool
+] {
+    let children = if $node.kind == 'Folder' {
+        visible-children $node $long $hide_empty_folders
+        | each {|child| to-pipeline-node $child $long $hide_empty_folders }
+    } else {
+        []
+    }
+
+    {
+        name: $node.name
+        type: (if $node.kind == 'Folder' { 'dir' } else { 'file' })
+        path: $node.full_name
+        size: ($node.size_bytes | into filesize)
+        children: $children
+    }
+}
+
 def tree-prefix [
     ancestor_last: list<bool>
     is_last: bool
@@ -232,7 +256,7 @@ def render-tree-children [
     }
 }
 
-# Long changes rendering only; the backend always requests du --long to obtain structured children.
+# Long changes node visibility only; the backend always requests du --long to obtain structured children.
 export def main [
     --deref (-r)
     --long (-l)
@@ -243,6 +267,8 @@ export def main [
     --hide-empty-folders (-e)
     ...path: glob
 ] {
+    let redirected = (is-redirected)
+
     if $max_depth != null and $max_depth < 0 {
         error make { msg: 'MaxDepth cannot be negative.' }
     }
@@ -258,6 +284,13 @@ export def main [
         | each {|entry| normalize-du-node $entry $all }
         | sort-by full_name --ignore-case
     )
+
+    if $redirected {
+        return (
+            $roots
+            | each {|root| to-pipeline-node $root $long $hide_empty_folders }
+        )
+    }
 
     let ui = (r3cli console --colour auto)
     r3cli banner $ui 'SHOW-TREE'
