@@ -1,4 +1,4 @@
-const R3CLI_MODULE = (path self ../R3CLI/dist/nushell/r3cli)
+const R3CLI_MODULE = (path self vendor/R3CLI/nushell/r3cli)
 use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
@@ -23,7 +23,7 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Interactive calls render the R3CLI tree. Redirected or captured calls return native Nushell records.'
+        'Every call returns native Nushell records. Direct interactive calls also render the R3CLI tree.'
         'Long controls file-node visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
@@ -285,42 +285,50 @@ export def main [
         | sort-by full_name --ignore-case
     )
 
-    if $redirected {
-        return (
-            $roots
-            | each {|root| to-pipeline-node $root $long $hide_empty_folders }
-        )
-    }
-
-    let ui = (r3cli console --colour auto)
-    r3cli banner $ui 'SHOW-TREE'
-
-    if ($roots | is-empty) {
-        r3cli status $ui warning 'No matching paths.'
-        return
-    }
-
-    for row in ($roots | enumerate) {
-        let root = $row.item
-
-        if $row.index > 0 {
-            r3cli line $ui
-        }
-
-        render-node-line $ui $root '' true
-
-        if $root.kind == 'Folder' {
-            render-tree-children $ui $root $long $hide_empty_folders []
-        }
-    }
-
-    let total = (
+    let result = (
         $roots
-        | reduce --fold 0 {|root, acc| $acc + $root.size_bytes }
+        | each {|root| to-pipeline-node $root $long $hide_empty_folders }
     )
 
-    r3cli line $ui
-    r3cli key-value $ui 'Total size' (format-tree-size $total)
+    if not $redirected {
+        let ui = (r3cli console --colour auto)
+        r3cli banner $ui 'SHOW-TREE'
+
+        if ($roots | is-empty) {
+            r3cli status $ui warning 'No matching paths.'
+        } else {
+            for row in ($roots | enumerate) {
+                let root = $row.item
+
+                if $row.index > 0 {
+                    r3cli line $ui
+                }
+
+                render-node-line $ui $root '' true
+
+                if $root.kind == 'Folder' {
+                    render-tree-children $ui $root $long $hide_empty_folders []
+                }
+            }
+
+            let total = (
+                $roots
+                | reduce --fold 0 {|root, acc| $acc + $root.size_bytes }
+            )
+
+            r3cli line $ui
+            r3cli key-value $ui 'Total size' (format-tree-size $total)
+        }
+    }
+
+    if $redirected {
+        $result
+    } else {
+        # The installer adds a display_output hook that consumes this marker.
+        # The value still reaches Nushell's result machinery, including $ans.last,
+        # without being rendered a second time as an automatic table.
+        $result | metadata set {|| merge { show_tree_pre_rendered: true } }
+    }
 }
 
 export def --wrapped tree [...rest: string] {

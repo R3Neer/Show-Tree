@@ -2,7 +2,9 @@
 
 A size-aware filesystem tree for PowerShell and Nushell, rendered with [R3CLI](https://github.com/R3Neer/R3CLI).
 
-The PowerShell implementation traverses the filesystem directly. The Nushell implementation delegates traversal and filtering to Nushell's structured `du --long` output, then normalizes the result for either interactive rendering or native pipeline use.
+Show-Tree is self-contained for users: the exact R3CLI PowerShell and Nushell adapters it needs are vendored as a private dependency. A separate R3CLI checkout, Python, or dependency build is not required to install or run Show-Tree.
+
+The PowerShell implementation traverses the filesystem directly. The Nushell implementation delegates traversal and filtering to Nushell's structured `du --long` output, then normalizes the result for both interactive rendering and native pipeline use.
 
 ## Behaviour
 
@@ -17,12 +19,12 @@ Both implementations share the same filesystem contract:
 - Directories are ordered before files, with case-insensitive name ordering.
 - Directory symbolic links are not recursively traversed.
 
-## Nushell pipelines
+## Nushell values and display
 
-`show-tree` adapts to how it is called:
+`show-tree` always returns native Nushell values. Presentation depends on the destination:
 
-- At the end of an interactive command line, it renders the normal R3CLI tree.
-- When its result is piped, redirected, captured in a variable, or used in a subexpression, it returns native Nushell records and does not render the visual tree.
+- A direct interactive call renders the normal R3CLI tree and returns the native value with metadata marking it as already rendered. The installer adds a `display_output` hook that suppresses only that duplicate automatic table while preserving any display hook the user already had.
+- Piped, redirected, captured and subexpression calls return the same native values without rendering the R3CLI tree.
 
 Each returned node has this shape:
 
@@ -36,9 +38,9 @@ Each returned node has this shape:
 }
 ```
 
-Directory nodes contain their visible child nodes recursively. File nodes use an empty `children` list. Without `--long`, file nodes are omitted from the structured tree just as they are from the interactive tree, while their sizes still contribute to directory totals.
+Directory nodes contain visible child nodes recursively. File nodes use an empty `children` list. Without `--long`, file nodes are omitted while their sizes still contribute to directory totals.
 
-That means normal Nushell pipelines work directly:
+Normal pipelines therefore work directly:
 
 ```nu
 show-tree D:/Projects --max-depth 2 | get name
@@ -49,13 +51,16 @@ $tree.0.children
 show-tree D:/Projects --max-depth 3 --long
 | to json
 | save --force project-tree.json
-
-show-tree D:/Projects --max-depth 3
-| to nuon
-| save --force project-tree.nuon
 ```
 
-No separate JSON mode is required: the command returns Nushell values, so callers can choose `to json`, `to nuon`, `to yaml`, filtering, projection, or any other pipeline operation themselves.
+A direct REPL call also remains available through Nushell's `$ans.last` when `max_last_result_size` is enabled in the user's Nushell configuration:
+
+```nu
+show-tree D:/Projects -d 2
+$ans.last.0.children
+```
+
+No dedicated JSON mode is needed. Callers can use `to json`, `to nuon`, `to yaml`, filters, projections, or any other normal Nushell operation.
 
 ## Options
 
@@ -94,36 +99,30 @@ show-tree D:/Projects -d 2 | to json
 
 ## Installation
 
-Show-Tree and R3CLI are expected to be sibling repositories. Their parent directory can be anywhere:
-
-```text
-<tools-root>\
-├── R3CLI\
-└── Show-Tree\
-```
-
-For example:
-
-```text
-D:\Tools\
-├── R3CLI\
-└── Show-Tree\
-```
-
-Run the installer from the Show-Tree checkout:
+Clone or download Show-Tree and run its installer:
 
 ```powershell
 .\Install-ShowTree.ps1
 ```
 
-The installer discovers both repositories from its own location, rebuilds the deterministic R3CLI PowerShell and Nushell distributions from the sibling checkout, updates the PowerShell all-hosts profile, imports the Nushell commands from `config.nu`, and shadows the legacy Windows `tree` command with a warning before forwarding to `tree.com`.
+The installer verifies the bundled R3CLI dependency against `dependencies.json`, updates the PowerShell all-hosts profile, imports the Nushell commands from `config.nu`, installs the Nushell display hook described above, and shadows the legacy Windows `tree` command with a warning before forwarding to `tree.com`.
 
-The installer asks Nushell for its configuration path with configuration loading disabled, so it can repair a stale Show-Tree import after the repositories have been moved. The Show-Tree implementations resolve R3CLI relative to their own checkout rather than embedding a machine-specific path.
+The dependency is private to Show-Tree. It is loaded from `vendor/R3CLI` and never requires an R3CLI repository beside Show-Tree or an R3CLI installation on `PSModulePath`.
+
+## Updating R3CLI for maintainers
+
+R3CLI updates are explicit development work, following the same vendoring model used by ModpackTools. From a Show-Tree checkout, point the update helper at a clean R3CLI checkout:
+
+```console
+python scripts/update_r3cli.py <clean-R3CLI-checkout>
+```
+
+The helper refuses a dirty R3CLI checkout by default, builds both official shell adapters, replaces only the generated `vendor/R3CLI` destinations, and records the exact revision, version and SHA256 hashes in `dependencies.json`. Python is needed for this maintainer operation only, not for users installing Show-Tree.
 
 ## Requirements
 
-- PowerShell 7
-- Nushell 0.115+
-- Python 3.11+ at installation time to build the R3CLI shell distributions
-- Show-Tree and R3CLI checked out as sibling directories
+- PowerShell 7 for the PowerShell command and installer
+- Nushell 0.115+ for the Nushell command
 - Windows for the installer and legacy `tree.com` forwarding wrapper
+
+R3CLI is already bundled as a verified private dependency.
