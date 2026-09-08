@@ -1,0 +1,72 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  nushell-structured-output:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Show-Tree
+        uses: actions/checkout@v5
+        with:
+          path: Show-Tree
+
+      - name: Check out R3CLI as sibling
+        uses: actions/checkout@v5
+        with:
+          repository: R3Neer/R3CLI
+          path: R3CLI
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build R3CLI Nushell distribution
+        run: python R3CLI/scripts/build_nushell.py
+
+      - name: Set up Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.115.1'
+
+      - name: Test native pipeline output
+        run: nu Show-Tree/tests/Nushell.Structured.nu
+
+  windows-installation:
+    runs-on: windows-latest
+    steps:
+      - name: Check out Show-Tree
+        uses: actions/checkout@v5
+        with:
+          path: Show-Tree
+
+      - name: Check out R3CLI as sibling
+        uses: actions/checkout@v5
+        with:
+          repository: R3Neer/R3CLI
+          path: R3CLI
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.115.1'
+
+      - name: Install Show-Tree
+        shell: pwsh
+        run: ./Show-Tree/Install-ShowTree.ps1
+
+      - name: Validate Nushell profile import and structured output
+        shell: pwsh
+        run: nu -c 'show-tree Show-Tree -d 0 | get 0.type | print'
+
+      - name: Validate PowerShell profile import
+        shell: pwsh
+        run: pwsh -Command 'Show-Tree Show-Tree -MaxDepth 0'
