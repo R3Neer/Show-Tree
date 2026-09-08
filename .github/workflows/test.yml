@@ -25,9 +25,9 @@ jobs:
 
       - name: Syntax-check Nushell modules and installer
         run: |
-          nu --no-config-file -c 'open --raw Show-Tree/show-tree.nu | nu-check --as-module | if not $in { exit 1 }'
-          nu --no-config-file -c 'open --raw Show-Tree/show-tree-display.nu | nu-check --as-module | if not $in { exit 1 }'
-          nu --no-config-file -c 'open --raw Show-Tree/install-show-tree.nu | nu-check | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-display.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check Show-Tree/install-show-tree.nu | if not $in { exit 1 }'
 
       - name: Test native pipeline output
         run: nu Show-Tree/tests/Nushell.Structured.nu
