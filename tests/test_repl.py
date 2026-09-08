@@ -63,10 +63,15 @@ def main() -> None:
             )
 
         explicit_table = run_and_collect(child, "$ans.last | table", "╭")
-        for expected in ("tree", "name", "type", "size", "depth", "path"):
+        for expected in ("name", "type", "size", "path"):
             if expected not in explicit_table:
                 raise AssertionError(
                     f"Explicit table output is missing the {expected!r} column:\n{explicit_table}"
+                )
+        for presentation_only in ("tree", "depth"):
+            if presentation_only in explicit_table:
+                raise AssertionError(
+                    f"Explicit table output leaked presentation-only {presentation_only!r} data:\n{explicit_table}"
                 )
         if "[table" in explicit_table:
             raise AssertionError(
