@@ -143,7 +143,7 @@ if ($null -eq $nu) {
 
 # Do not load the user's existing Nu configuration while locating config.nu.
 # A stale Show-Tree import is exactly the kind of broken config this installer
-# needs to be able to repair after the repositories have moved.
+# needs to be able to repair after the repository has moved.
 $nuConfigPath = (
     & $nu.Source --no-config-file -c 'print --no-newline $nu.config-path' |
         Out-String
@@ -156,6 +156,8 @@ if ([string]::IsNullOrWhiteSpace($nuConfigPath)) {
 $nuScriptPath = $showTreeNushell.Replace("\", "/").Replace("'", "''")
 
 # This wrapper preserves Nu's normal help everywhere except Show-Tree, whose help is rendered by R3CLI.
+# display_output accepts a string, closure or null. String hooks must remain source strings so Nushell itself
+# evaluates them as hooks; closures can be delegated to directly.
 $nuProfileBlock = @(
     "# >>> Show-Tree >>>"
     "use '$nuScriptPath' [main show-tree-help tree]"
@@ -172,14 +174,25 @@ $nuProfileBlock = @(
     "# has already rendered so Nushell stores them for `$ans.last without also"
     "# drawing the same native records as an automatic table."
     "let show_tree_previous_display_output = (`$env.config.hooks.display_output? | default null)"
-    "`$env.config.hooks.display_output = {"
-    "    metadata access {|meta|"
-    "        if (((`$meta | get --optional show_tree_pre_rendered) | default false) == true) {"
-    "            `$in | ignore"
-    "        } else if `$show_tree_previous_display_output == null {"
-    "            `$in | table"
-    "        } else {"
-    "            `$in | do `$show_tree_previous_display_output"
+    "let show_tree_previous_display_type = (`$show_tree_previous_display_output | describe)"
+    ""
+    "if `$show_tree_previous_display_type == 'string' {"
+    "    let show_tree_wrapped_display_source = ("
+    "        'metadata access {|meta| if (((`$meta | get --optional show_tree_pre_rendered) | default false) == true) { `$in | ignore } else { `$in | do { '"
+    "        + `$show_tree_previous_display_output"
+    "        + ' } } }'"
+    "    )"
+    "    `$env.config.hooks.display_output = `$show_tree_wrapped_display_source"
+    "} else {"
+    "    `$env.config.hooks.display_output = {"
+    "        metadata access {|meta|"
+    "            if (((`$meta | get --optional show_tree_pre_rendered) | default false) == true) {"
+    "                `$in | ignore"
+    "            } else if `$show_tree_previous_display_output == null {"
+    "                `$in | table"
+    "            } else {"
+    "                `$in | do `$show_tree_previous_display_output"
+    "            }"
     "        }"
     "    }"
     "}"
