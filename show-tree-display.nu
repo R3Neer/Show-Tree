@@ -87,9 +87,9 @@ export-env {
             # Nushell evaluates string display hooks as source. Preserve that
             # source and intercept only a marked list result from Show-Tree.
             let wrapped_display_source = (
-                'metadata access {|meta| if ((($meta | get --optional show_tree_result) | default false) == true) and (($in | describe) =~ ''^list'') { $in | show-tree-render } else { $in | do { '
+                "metadata access {|meta| if ((($meta | get --optional show_tree_result) | default false) == true) and (($in | describe) =~ '^list') { $in | show-tree-render } else { $in | do { "
                 + $previous_display_output
-                + ' } } }'
+                + " } } }"
             )
             $env.config.hooks.display_output = $wrapped_display_source
         } else {
