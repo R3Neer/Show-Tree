@@ -13,19 +13,10 @@ jobs:
         with:
           path: Show-Tree
 
-      - name: Check out R3CLI as sibling
-        uses: actions/checkout@v5
-        with:
-          repository: R3Neer/R3CLI
-          path: R3CLI
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-
-      - name: Build R3CLI Nushell distribution
-        run: python R3CLI/scripts/build_nushell.py
 
       - name: Set up Nushell
         uses: hustcer/setup-nu@v3
@@ -35,8 +26,13 @@ jobs:
       - name: Test native pipeline output
         run: nu Show-Tree/tests/Nushell.Structured.nu
 
-      - name: Test interactive rendering path
-        run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0'
+      - name: Test direct rendering path
+        run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
+
+      - name: Test direct REPL result through ans
+        run: |
+          python -m pip install pexpect
+          python Show-Tree/tests/test_repl.py
 
   windows-installation:
     runs-on: windows-latest
@@ -46,21 +42,24 @@ jobs:
         with:
           path: Show-Tree
 
-      - name: Check out R3CLI as sibling
-        uses: actions/checkout@v5
-        with:
-          repository: R3Neer/R3CLI
-          path: R3CLI
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
       - name: Set up Nushell
         uses: hustcer/setup-nu@v3
         with:
           version: '0.115.1'
+
+      - name: Reject a corrupted vendored dependency
+        shell: pwsh
+        run: |
+          $copy = Join-Path $env:RUNNER_TEMP 'Show-Tree-corrupt'
+          Copy-Item -Recurse -Force ./Show-Tree $copy
+          Add-Content -LiteralPath (Join-Path $copy 'vendor/R3CLI/powershell/resources.json') -Value ' '
+          try {
+              & (Join-Path $copy 'Install-ShowTree.ps1')
+              throw 'Corrupt dependency was unexpectedly accepted.'
+          }
+          catch {
+              if ($_.Exception.Message -notmatch 'SHA256 verification') { throw }
+          }
 
       - name: Install Show-Tree
         shell: pwsh

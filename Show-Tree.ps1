@@ -65,12 +65,10 @@ param (
     [switch]$Help
 )
 
-$r3cliPath = Join-Path `
-    (Split-Path -Parent $PSScriptRoot) `
-    'R3CLI\dist\powershell\R3CLI\R3CLI.psd1'
+$r3cliPath = Join-Path $PSScriptRoot 'vendor/R3CLI/powershell/R3CLI.psd1'
 
 if (-not (Test-Path -LiteralPath $r3cliPath)) {
-    throw "R3CLI PowerShell distribution was not found at '$r3cliPath'. Keep R3CLI and Show-Tree as sibling repositories."
+    throw "Vendored R3CLI PowerShell dependency was not found at '$r3cliPath'. Reinstall Show-Tree."
 }
 
 Import-Module $r3cliPath -ErrorAction Stop

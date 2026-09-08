@@ -5,86 +5,49 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $showTreeRoot = $PSScriptRoot
-$toolsRoot = Split-Path -Parent $showTreeRoot
-$r3cliRoot = Join-Path $toolsRoot 'R3CLI'
-
 $showTreePowerShell = Join-Path $showTreeRoot 'Show-Tree.ps1'
 $showTreeNushell = Join-Path $showTreeRoot 'show-tree.nu'
-$r3cliPowerShell = Join-Path $r3cliRoot 'dist\powershell\R3CLI\R3CLI.psd1'
-$r3cliNushell = Join-Path $r3cliRoot 'dist\nushell\r3cli'
-$r3cliPowerShellBuild = Join-Path $r3cliRoot 'scripts\build_powershell.py'
-$r3cliNushellBuild = Join-Path $r3cliRoot 'scripts\build_nushell.py'
+$dependencyManifest = Join-Path $showTreeRoot 'dependencies.json'
+$r3cliPowerShellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\powershell'
+$r3cliNushellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\nushell\r3cli'
+$r3cliPowerShell = Join-Path $r3cliPowerShellRoot 'R3CLI.psd1'
 
-$requiredSourcePaths = @(
-    $showTreePowerShell,
-    $showTreeNushell,
-    $r3cliPowerShellBuild,
-    $r3cliNushellBuild
-)
-
-foreach ($requiredPath in $requiredSourcePaths) {
+foreach ($requiredPath in @($showTreePowerShell, $showTreeNushell, $dependencyManifest)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
-        throw (
-            "Required source file was not found: '$requiredPath'. " +
-            "Keep Show-Tree and R3CLI as sibling repositories under the same parent directory."
-        )
+        throw "Required Show-Tree file was not found: '$requiredPath'."
     }
 }
 
-function Get-PythonInvocation {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($null -ne $python) {
-        return [PSCustomObject]@{
-            Command = $python.Source
-            Prefix = @()
-        }
-    }
-
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($null -ne $py) {
-        return [PSCustomObject]@{
-            Command = $py.Source
-            Prefix = @('-3')
-        }
-    }
-
-    throw "Python 3.11 or newer is required to build the R3CLI shell adapters."
+$dependencies = Get-Content -LiteralPath $dependencyManifest -Raw | ConvertFrom-Json -AsHashtable
+$r3cli = $dependencies['R3CLI']
+if ($null -eq $r3cli) {
+    throw "dependencies.json does not contain the R3CLI dependency."
 }
 
-function Invoke-R3CliBuild {
+function Test-VendoredFiles {
     param (
-        [Parameter(Mandatory)]
-        [string]$Script,
-
-        [Parameter(Mandatory)]
-        [string]$Output
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][Collections.IDictionary]$Files,
+        [Parameter(Mandatory)][string]$Label
     )
 
-    $python = Get-PythonInvocation
-    $arguments = @($python.Prefix) + @($Script, '--output', $Output)
-
-    & $python.Command @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "R3CLI build failed: '$Script'."
+    foreach ($entry in $Files.GetEnumerator()) {
+        $path = Join-Path $Root $entry.Key
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Vendored R3CLI $Label file is missing: '$path'. Reinstall Show-Tree."
+        }
+        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+        if ($actual -ne $entry.Value) {
+            throw "Vendored R3CLI $Label file failed SHA256 verification: '$path'. Reinstall Show-Tree."
+        }
     }
 }
 
-# R3CLI distributions are generated artifacts rather than committed files.
-# Rebuilding them here makes a fresh pair of sibling clones installable directly
-# and ensures a reinstall consumes the currently checked-out R3CLI sources.
-Invoke-R3CliBuild -Script $r3cliNushellBuild -Output $r3cliNushell
-Invoke-R3CliBuild -Script $r3cliPowerShellBuild -Output (Split-Path -Parent $r3cliPowerShell)
+Test-VendoredFiles -Root $r3cliPowerShellRoot -Files $r3cli['powershell']['files'] -Label 'PowerShell'
+Test-VendoredFiles -Root $r3cliNushellRoot -Files $r3cli['nushell']['files'] -Label 'Nushell'
 
-$requiredBuiltPaths = @(
-    $r3cliPowerShell,
-    (Join-Path $r3cliNushell 'mod.nu')
-)
-
-foreach ($requiredPath in $requiredBuiltPaths) {
-    if (-not (Test-Path -LiteralPath $requiredPath)) {
-        throw "R3CLI build did not produce the required file: '$requiredPath'."
-    }
-}
+$r3cliVersion = [string]$r3cli['version']
+$r3cliRevision = [string]$r3cli['revision']
 
 function Set-MarkedBlock {
     param (
@@ -180,7 +143,7 @@ if ($null -eq $nu) {
 
 # Do not load the user's existing Nu configuration while locating config.nu.
 # A stale Show-Tree import is exactly the kind of broken config this installer
-# needs to be able to repair after the repositories have moved.
+# needs to be able to repair after the repository has moved.
 $nuConfigPath = (
     & $nu.Source --no-config-file -c 'print --no-newline $nu.config-path' |
         Out-String
@@ -193,6 +156,8 @@ if ([string]::IsNullOrWhiteSpace($nuConfigPath)) {
 $nuScriptPath = $showTreeNushell.Replace("\", "/").Replace("'", "''")
 
 # This wrapper preserves Nu's normal help everywhere except Show-Tree, whose help is rendered by R3CLI.
+# display_output accepts a string, closure or null. String hooks must remain source strings so Nushell itself
+# evaluates them as hooks; closures can be delegated to directly.
 $nuProfileBlock = @(
     "# >>> Show-Tree >>>"
     "use '$nuScriptPath' [main show-tree-help tree]"
@@ -204,6 +169,33 @@ $nuProfileBlock = @(
     "        %help ...`$rest"
     "    }"
     "}"
+    ""
+    "# Preserve the user's existing display hook. Show-Tree marks values that it"
+    "# has already rendered so Nushell stores them for `$ans.last without also"
+    "# drawing the same native records as an automatic table."
+    "let show_tree_previous_display_output = (`$env.config.hooks.display_output? | default null)"
+    "let show_tree_previous_display_type = (`$show_tree_previous_display_output | describe)"
+    ""
+    "if `$show_tree_previous_display_type == 'string' {"
+    "    let show_tree_wrapped_display_source = ("
+    "        'metadata access {|meta| if (((`$meta | get --optional show_tree_pre_rendered) | default false) == true) { `$in | ignore } else { `$in | do { '"
+    "        + `$show_tree_previous_display_output"
+    "        + ' } } }'"
+    "    )"
+    "    `$env.config.hooks.display_output = `$show_tree_wrapped_display_source"
+    "} else {"
+    "    `$env.config.hooks.display_output = {"
+    "        metadata access {|meta|"
+    "            if (((`$meta | get --optional show_tree_pre_rendered) | default false) == true) {"
+    "                `$in | ignore"
+    "            } else if `$show_tree_previous_display_output == null {"
+    "                `$in | table"
+    "            } else {"
+    "                `$in | do `$show_tree_previous_display_output"
+    "            }"
+    "        }"
+    "    }"
+    "}"
     "# <<< Show-Tree <<<"
 ) -join [Environment]::NewLine
 
@@ -213,7 +205,7 @@ Set-MarkedBlock `
     -EndMarker "# <<< Show-Tree <<<" `
     -Block $nuProfileBlock
 
-Write-Host "R3CLI shell adapters rebuilt from: $r3cliRoot"
+Write-Host "R3CLI dependency verified: $r3cliVersion ($r3cliRevision)"
 Write-Host "PowerShell profile updated: $powerShellProfile"
 Write-Host "Nushell config updated: $nuConfigPath"
 Write-Host "Show-Tree is available immediately in this PowerShell session."
