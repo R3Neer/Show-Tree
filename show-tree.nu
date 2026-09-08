@@ -23,9 +23,9 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Nushell output is a flat native table: tree, name, type, size, depth and path.'
+        'Nushell output is a flat native table with name, type, size and path columns.'
         'Direct interactive results are rendered as the R3CLI tree by the installed display integration.'
-        'Pipe to table, to json, where, sort-by or any other Nushell command to work with the rows directly.'
+        'Pipe to table, to json, where, sort-by or any other Nushell command to work with rows directly.'
         'Long controls file-row visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
@@ -178,7 +178,7 @@ def tree-prefix [
     $prefix + (if $is_last { '└── ' } else { '├── ' })
 }
 
-def to-table-row [
+def to-render-row [
     node: record
     tree_label: string
     depth: int
@@ -202,7 +202,7 @@ def flatten-child [
     depth: int
 ]: nothing -> list<record> {
     let prefix = (tree-prefix $ancestor_last $is_last)
-    let row = (to-table-row $node ($prefix + (display-name $node)) $depth)
+    let row = (to-render-row $node ($prefix + (display-name $node)) $depth)
 
     if $node.kind != 'Folder' {
         return [$row]
@@ -227,7 +227,7 @@ def flatten-root [
     long: bool
     hide_empty_folders: bool
 ]: nothing -> list<record> {
-    let row = (to-table-row $root $root.full_name 0)
+    let row = (to-render-row $root $root.full_name 0)
 
     if $root.kind != 'Folder' {
         return [$row]
@@ -276,19 +276,26 @@ export def main [
         | sort-by full_name --ignore-case
     )
 
-    let result = (
+    let render_rows = (
         $roots
         | each {|root| flatten-root $root $long $hide_empty_folders }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
+    # Keep the public value deliberately small and table-friendly. The branch
+    # glyphs and depth used for R3CLI presentation live only in pipeline metadata.
+    let result = ($render_rows | select name type size path)
+
     if $redirected {
         $result
     } else {
-        # The display integration recognizes this metadata and renders the native
-        # rows as the R3CLI tree. Because the command itself prints nothing, the
-        # same native value can later be displayed again through $ans.last.
-        $result | metadata set {|| merge { show_tree_result: true } }
+        let render_snapshot = $render_rows
+        $result | metadata set {||
+            merge {
+                show_tree_result: true
+                show_tree_render: $render_snapshot
+            }
+        }
     }
 }
 
