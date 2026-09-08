@@ -4,9 +4,30 @@ param ()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$showTreePowerShell = 'D:\OneDrive\Documentos Samuel\Herramientas software\Show-Tree\Show-Tree.ps1'
-$showTreeNushell = 'D:/OneDrive/Documentos Samuel/Herramientas software/Show-Tree/show-tree.nu'
-$r3cliPowerShell = 'D:\OneDrive\Documentos Samuel\Herramientas software\R3CLI\dist\powershell\R3CLI\R3CLI.psd1'
+$showTreeRoot = $PSScriptRoot
+$toolsRoot = Split-Path -Parent $showTreeRoot
+$r3cliRoot = Join-Path $toolsRoot 'R3CLI'
+
+$showTreePowerShell = Join-Path $showTreeRoot 'Show-Tree.ps1'
+$showTreeNushell = Join-Path $showTreeRoot 'show-tree.nu'
+$r3cliPowerShell = Join-Path $r3cliRoot 'dist\powershell\R3CLI\R3CLI.psd1'
+$r3cliNushell = Join-Path $r3cliRoot 'dist\nushell\r3cli'
+
+$requiredPaths = @(
+    $showTreePowerShell,
+    $showTreeNushell,
+    $r3cliPowerShell,
+    $r3cliNushell
+)
+
+foreach ($requiredPath in $requiredPaths) {
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw (
+            "Required file was not found: '$requiredPath'. " +
+            "Keep Show-Tree and R3CLI as sibling repositories under the same parent directory."
+        )
+    }
+}
 
 function Set-MarkedBlock {
     param (
