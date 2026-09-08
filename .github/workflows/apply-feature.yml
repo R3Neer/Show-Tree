@@ -23,6 +23,20 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Repair migration replacement escaping
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('Show-Tree/scripts/apply_feature.py')
+          text = path.read_text(encoding='utf-8')
+          old = "'vendor\\\\R3CLI\\\\powershell\\\\R3CLI.psd1'"
+          new = "'vendor/R3CLI/powershell/R3CLI.psd1'"
+          if old not in text:
+              raise SystemExit('Expected PowerShell path replacement was not found.')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
+
       - name: Apply migration
         run: python Show-Tree/scripts/apply_feature.py
 
