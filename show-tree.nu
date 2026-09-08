@@ -324,9 +324,9 @@ export def main [
     if $redirected {
         $result
     } else {
-        # The installer adds a display_output hook that consumes this marker.
-        # The value still reaches Nushell's result machinery, including $ans.last,
-        # without being rendered a second time as an automatic table.
+        # show-tree-display.nu consumes this metadata for direct interactive calls.
+        # The native value still reaches Nushell's result machinery, including
+        # $ans.last, without being rendered a second time as an automatic table.
         $result | metadata set {|| merge { show_tree_pre_rendered: true } }
     }
 }
