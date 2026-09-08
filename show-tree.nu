@@ -214,13 +214,7 @@ def flatten-child [
         | enumerate
         | each {|item|
             let child_is_last = ($item.index == (($children | length) - 1))
-            flatten-child \
-                $item.item \
-                $long \
-                $hide_empty_folders \
-                ([...$ancestor_last $is_last]) \
-                $child_is_last \
-                ($depth + 1)
+            flatten-child $item.item $long $hide_empty_folders ([...$ancestor_last $is_last]) $child_is_last ($depth + 1)
         }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
