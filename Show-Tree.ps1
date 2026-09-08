@@ -65,7 +65,14 @@ param (
     [switch]$Help
 )
 
-$r3cliPath = 'D:\OneDrive\Documentos Samuel\Herramientas software\R3CLI\dist\powershell\R3CLI\R3CLI.psd1'
+$r3cliPath = Join-Path `
+    (Split-Path -Parent $PSScriptRoot) `
+    'R3CLI\dist\powershell\R3CLI\R3CLI.psd1'
+
+if (-not (Test-Path -LiteralPath $r3cliPath)) {
+    throw "R3CLI PowerShell distribution was not found at '$r3cliPath'. Keep R3CLI and Show-Tree as sibling repositories."
+}
+
 Import-Module $r3cliPath -ErrorAction Stop
 
 $ui = New-R3Console -Colour auto -Invocation $MyInvocation
@@ -73,7 +80,7 @@ $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "1.0.0"
+        Version = "0.1.0"
         Description = "Displays a size-aware filesystem tree with depth, size and visibility filtering."
         Invocation = "show-tree"
         Groups = @()
