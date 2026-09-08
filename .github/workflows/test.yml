@@ -13,6 +13,11 @@ jobs:
         with:
           path: Show-Tree
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
       - name: Set up Nushell
         uses: hustcer/setup-nu@v3
         with:
@@ -25,20 +30,9 @@ jobs:
         run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
 
       - name: Test direct REPL result through ans
-        shell: bash
         run: |
-          cat > /tmp/show-tree-input <<'EOF'
-          show-tree Show-Tree -d 0
-          $ans.last.0.type | save --force /tmp/show-tree-ans.txt
-          exit
-          EOF
-          script -qec "nu --config Show-Tree/tests/Nushell.ReplConfig.nu" /tmp/show-tree-transcript.txt < /tmp/show-tree-input
-          test "$(cat /tmp/show-tree-ans.txt)" = "dir"
-          grep -q "SHOW-TREE" /tmp/show-tree-transcript.txt
-          if grep -q "╭" /tmp/show-tree-transcript.txt; then
-            echo "Direct Show-Tree output was rendered again as a Nushell table."
-            exit 1
-          fi
+          python -m pip install pexpect
+          python Show-Tree/tests/test_repl.py
 
   windows-installation:
     runs-on: windows-latest
