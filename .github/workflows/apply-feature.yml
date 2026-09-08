@@ -1,0 +1,41 @@
+name: Apply feature migration
+
+on:
+  push:
+    branches:
+      - feature/ans-and-vendored-r3cli
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Show-Tree
+        uses: actions/checkout@v5
+        with:
+          path: Show-Tree
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Apply migration
+        run: python Show-Tree/scripts/apply_feature.py
+
+      - name: Commit final feature tree
+        working-directory: Show-Tree
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No migration changes to commit."
+            exit 0
+          fi
+          git commit -m "Make Show-Tree self-contained and preserve REPL results"
+          git push origin HEAD:${GITHUB_REF_NAME}
