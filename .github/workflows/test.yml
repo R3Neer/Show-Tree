@@ -20,7 +20,7 @@ jobs:
           path: R3CLI
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
@@ -34,6 +34,9 @@ jobs:
 
       - name: Test native pipeline output
         run: nu Show-Tree/tests/Nushell.Structured.nu
+
+      - name: Test interactive rendering path
+        run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0'
 
   windows-installation:
     runs-on: windows-latest
@@ -50,7 +53,7 @@ jobs:
           path: R3CLI
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
@@ -65,7 +68,9 @@ jobs:
 
       - name: Validate Nushell profile import and structured output
         shell: pwsh
-        run: nu -i -c 'show-tree Show-Tree -d 0 | get 0.type | print'
+        run: |
+          $nuConfig = (& nu --no-config-file -c 'print --no-newline $nu.config-path' | Out-String).Trim()
+          nu --config $nuConfig -c 'show-tree Show-Tree -d 0 | get 0.type | print'
 
       - name: Validate PowerShell profile import
         shell: pwsh
