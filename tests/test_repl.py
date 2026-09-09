@@ -30,9 +30,16 @@ def read_to_prompt(child: pexpect.spawn) -> str:
     return expect_while_answering_cpr(child, PROMPT)
 
 
-def run_and_collect(child: pexpect.spawn, command: str, target: str | re.Pattern[str]) -> str:
-    child.sendline(command)
-    output = expect_while_answering_cpr(child, target)
+def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
+    """Execute one REPL line and collect everything after an execution marker.
+
+    Reedline can repaint the prompt while Enter is being handled, so waiting for
+    the next prompt alone can race with execution. A marker printed by the command
+    itself gives us an unambiguous point after evaluation has actually started and,
+    unlike waiting for the expected UI text, also exposes parse/runtime errors.
+    """
+    child.sendline(f"print '{marker}'; {command}")
+    output = expect_while_answering_cpr(child, marker)
     output += read_to_prompt(child)
     return output
 
@@ -50,19 +57,34 @@ def main() -> None:
     try:
         read_to_prompt(child)
 
-        rendered = run_and_collect(child, "show-tree Show-Tree -d 1", "SHOW-TREE")
+        rendered = run_marked(child, "show-tree Show-Tree -d 1", "__SHOW_TREE_DIRECT__")
+        if "SHOW-TREE" not in rendered:
+            raise AssertionError(
+                "A direct Show-Tree call did not render the R3CLI tree. Full REPL output:\n"
+                + rendered
+            )
         if "╭" in rendered:
             raise AssertionError(
                 "A direct Show-Tree call should render the R3CLI tree, not the native table."
             )
 
-        repeated = run_and_collect(child, "$ans.last", "SHOW-TREE")
+        repeated = run_marked(child, "$ans.last", "__SHOW_TREE_LAST__")
+        if "SHOW-TREE" not in repeated:
+            raise AssertionError(
+                "$ans.last did not redisplay the Show-Tree value as the R3CLI tree. Full REPL output:\n"
+                + repeated
+            )
         if "╭" in repeated:
             raise AssertionError(
                 "$ans.last should redisplay the Show-Tree value as the same R3CLI tree."
             )
 
-        explicit_table = run_and_collect(child, "$ans.last | table", "╭")
+        explicit_table = run_marked(child, "$ans.last | table", "__SHOW_TREE_TABLE__")
+        if "╭" not in explicit_table:
+            raise AssertionError(
+                "Explicit table output did not use Nushell's normal table renderer. Full REPL output:\n"
+                + explicit_table
+            )
         for expected in ("name", "type", "size", "path"):
             if expected not in explicit_table:
                 raise AssertionError(
@@ -78,7 +100,7 @@ def main() -> None:
                 "Explicit table output collapsed descendants into nested table placeholders."
             )
 
-        normal_output = run_and_collect(child, "[1 2]", "╭")
+        normal_output = run_marked(child, "[1 2]", "__NORMAL_TABLE__")
         if "╭" not in normal_output:
             raise AssertionError(
                 "Show-Tree's display hook did not preserve the previous/default table renderer."
