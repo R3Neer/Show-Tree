@@ -30,6 +30,7 @@ assert equal ($presentation_meta.show_tree_result? | default false) true
 assert (($presentation_meta.show_tree_render? | default [] | length) > 1) 'Show-Tree render metadata did not survive the command boundary.'
 assert equal ($presentation_meta.show_tree_render | get path | first) ($fixture | path expand)
 assert ('parent_path' in ($presentation_meta.show_tree_render | columns)) 'Lineage metadata must retain parent paths.'
+assert equal ($presentation_meta.show_tree_hidden_filtered? | default false) true
 
 let with_files = (show-tree $fixture --max-depth 2)
 let expected_columns = [name type size children path]
@@ -60,11 +61,10 @@ let root_file = ($with_files | where path == $root_file_path | first)
 assert equal $root_file.name 'root.txt'
 assert equal $root_file.type 'file'
 
-# Complete output is now the default. Historical --long/--all flags remain accepted
-# for compatibility and must not change the rows.
-let default_complete = (show-tree $fixture --max-depth 2)
-assert (($default_complete | where type == 'file' | length) >= 3) 'Default output must include files.'
-assert equal ($default_complete | to nuon) (show-tree $fixture --max-depth 2 --long --all | to nuon)
+let short_view = (show-tree $fixture --max-depth 2 --short)
+assert equal ($short_view | where type == 'file' | length) 0
+assert equal ($short_view | where path == $alpha_path | length) 1
+assert (($short_view | first | get size | into int) > 0) '--short should retain directory sizes based on visible files.'
 
 let empty_path = ($empty | path expand)
 let without_empty = (show-tree $fixture --max-depth 2 --hide-empty-folders)
@@ -79,6 +79,7 @@ let filtered_meta = (
     | metadata
 )
 assert equal ($filtered_meta.show_tree_result? | default false) true
+assert equal ($filtered_meta.show_tree_hidden_filtered? | default false) true
 
 let sorted_meta = (
     show-tree $fixture --max-depth 2
@@ -111,7 +112,8 @@ assert ($table_text | str contains 'root.txt') 'Explicit table output should sho
 assert ($table_text | str contains 'nested.txt') 'Flat children should remain readable as list values.'
 assert (not ($table_text | str contains '[table')) 'Explicit table output must not collapse descendants into nested-table placeholders.'
 
-# Normal save still writes the human tree when no .showtree persistence format is requested.
+# Normal save writes only the human tree. The interactive hidden-entry reminder is
+# deliberately a display-hook concern and must not leak into saved text.
 let saved_tree_path = ($fixture | path join 'saved-tree.txt')
 show-tree $fixture --max-depth 2 | save --force $saved_tree_path
 let saved_tree = (open --raw $saved_tree_path | ansi strip)
@@ -119,6 +121,7 @@ assert ($saved_tree | str contains 'SHOW-TREE') 'Saving a Show-Tree result did n
 assert ($saved_tree | str contains '├──') 'Saved Show-Tree output is missing tree branch glyphs.'
 assert ($saved_tree | str contains 'nested.txt') 'Saved Show-Tree output lost descendant rows.'
 assert ($saved_tree | str contains 'Total size') 'Saved Show-Tree output is missing the total-size footer.'
+assert (not ($saved_tree | str contains 'Hidden entries are omitted')) 'Saved Show-Tree output leaked the interactive hidden-entry reminder.'
 assert (not ($saved_tree | str contains '╭')) 'Saving a Show-Tree result wrote a Nushell table instead of the tree.'
 
 # Row-preserving transforms remain tree-aware when saved as human text.
@@ -130,6 +133,7 @@ let filtered_saved = (open --raw $filtered_save_path | ansi strip)
 assert ($filtered_saved | str contains $alpha_path) 'Filtered save did not promote the retained orphan to a full-path visual root.'
 assert ($filtered_saved | str contains 'nested.txt') 'Filtered save lost a retained descendant.'
 assert (not ($filtered_saved | str contains 'beta')) 'Filtered save reintroduced a removed node.'
+assert (not ($filtered_saved | str contains 'Hidden entries are omitted')) 'Filtered save leaked the interactive hidden-entry reminder.'
 
 # .showtree is the native persistent snapshot format.
 let snapshot_path = ($fixture | path join 'snapshot.showtree')
