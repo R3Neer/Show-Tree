@@ -3,7 +3,7 @@ use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '0.1.4'
+    version: '0.1.5'
     description: 'Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters.'
     invocation: 'show-tree'
     groups: []

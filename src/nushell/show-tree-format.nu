@@ -7,7 +7,7 @@
 
 const FORMAT_NAME = 'show-tree'
 const SCHEMA_VERSION = 1
-const PRODUCER_VERSION = '0.1.4'
+const PRODUCER_VERSION = '0.1.5'
 
 
 def fail [message: string] {

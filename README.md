@@ -6,73 +6,69 @@ A size-aware filesystem tree for PowerShell and Nushell, rendered with R3CLI whi
 
 ## Default behavior
 
-`show-tree` shows the recursive visible tree. With no filters it includes:
-
-- directories;
-- files;
-- every visible descendant recursively;
-- no depth limit.
-
-Hidden and dot-prefixed entries are deliberately omitted by default. Use `--all` / `-a` in Nushell or `-All` / `-a` in PowerShell to include them.
+`show-tree` shows visible directories and files recursively with no depth limit. Hidden and dot-prefixed entries are omitted unless `--all` / `-a` is used in Nushell or `-All` / `-a` in PowerShell.
 
 ```nu
 show-tree D:/Tools
 show-tree D:/Tools --all
+show-tree D:/Tools --short
 ```
 
 ```powershell
 Show-Tree D:\Tools
 Show-Tree D:\Tools -All
+Show-Tree D:\Tools -Short
 ```
 
-When hidden entries are being omitted, the interactive tree shows a short reminder:
+`short` suppresses file rows but keeps directory sizes based on the visible files beneath them. There is no user-facing `long` mode because files are already normal output.
+
+When hidden entries are omitted, the interactive tree shows a reminder:
 
 ```text
 ! Hidden entries are omitted. Use --all (-a) to include them.
 ```
 
-That reminder belongs to the terminal presentation, not to the tree data. It is therefore not written when the tree is saved to a file or piped through PowerShell.
+That reminder is presentation-only. It is not a public data field and is not written by tree-aware `save` or PowerShell pipeline output.
 
-Files are part of the normal tree. There is no `--long` / `-Long` mode. If a directory-only view is wanted, use `--short` / `-s` in Nushell or `-Short` / `-s` in PowerShell:
+## Human tree
+
+Directories use a Unicode folder glyph instead of a textual type suffix:
+
+```text
+📁 D:\Tools\Show-Tree (2.64 MiB)
+├── 📁 docs (42.00 KiB)
+├── 📁 src (104.00 KiB)
+│   ├── 📁 nushell (72.00 KiB)
+│   └── 📁 powershell (32.00 KiB)
+└── README.md (14.00 KiB)
+```
+
+`📁` is presentation only. Files remain visually lighter and do not receive a redundant file icon. The old `[Folder]` label is no longer emitted.
+
+Saving to an ordinary filename writes the same human tree without ANSI colour escapes or the interactive hidden-entry reminder:
 
 ```nu
-show-tree D:/Tools --short
+show-tree D:/Tools | save tree.txt
 ```
+
+Filtered and sorted trees save exactly the rows that survive the pipeline:
+
+```nu
+show-tree D:/Tools
+| where size > 10mb
+| sort-by size --reverse
+| save large-tree.txt
+```
+
+PowerShell uses its normal pipeline:
 
 ```powershell
-Show-Tree D:\Tools -Short
-```
-
-`short` suppresses file rows only. Directory sizes still account for the visible files beneath them, so the size information remains useful instead of becoming decorative arithmetic.
-
-Explicit filters continue to work normally:
-
-```nu
-show-tree D:/Tools -d 3
-show-tree D:/Tools -m 10mb -e
-show-tree D:/Tools -x '*.tmp'
-show-tree D:/Tools --all --short
+Show-Tree D:\Tools | Set-Content tree.txt
 ```
 
 ## Nushell data model
 
-The tree is a presentation of native data, not a text-only mode.
-
-```text
-show-tree
-   │
-   ▼
-native rows + private lineage metadata
-   │
-   ├── direct REPL result ────────────────> R3CLI tree + interactive notice when applicable
-   ├── where / sort-by / take / reverse ──> rebuilt R3CLI tree
-   ├── save tree.txt ─────────────────────> human tree as UTF-8 text, no notice
-   ├── save snapshot.showtree ────────────> native persistent snapshot
-   ├── to json / to nuon ─────────────────> explicit machine representation
-   └── table ─────────────────────────────> explicit Nushell table
-```
-
-The public row contract is:
+The tree is a presentation of native data, not a text-only mode. The public row contract is:
 
 ```nu
 {
@@ -84,107 +80,48 @@ The public row contract is:
 }
 ```
 
-Every visible filesystem node is one top-level row. `children` contains direct child names, never nested records.
+Every visible filesystem node is one top-level row. `children` contains direct child names, never nested records. Private metadata carries lineage and presentation state needed to reconstruct the human tree.
 
-The hidden-entry reminder is tracked only as private presentation metadata on live Show-Tree results. It does not become another public column and does not leak into JSON, NUON, tables or saved tree text.
-
-## Tree-first pipelines
-
-Row-preserving transformations keep the tree view:
+This means the following all remain ordinary Nushell operations:
 
 ```nu
-show-tree D:/Tools
-| where size > 10mb
-| sort-by size --reverse
-```
-
-The renderer uses exactly the rows that remain. Removed nodes are never reintroduced. If a retained node loses its parent, it is attached to the nearest retained ancestor; if none remains, it becomes a visual root labelled with its full path.
-
-Hierarchy wins over impossible sort orders: parents stay above descendants while transformed row order still controls roots and siblings where possible.
-
-The visibility policy also survives row-preserving transformations. Thus a filtered result originating from `show-tree` still reminds the user that hidden entries were omitted, while a result originating from `show-tree --all` does not.
-
-Use `table` when you explicitly want the flat Nu table:
-
-```nu
+show-tree D:/Tools | where size > 10mb
+show-tree D:/Tools | sort-by size --reverse
 show-tree D:/Tools | table
+show-tree D:/Tools | to json
 ```
 
-Shape-changing commands such as `get size`, `group-by`, or a `select` that removes required tree fields fall back to normal Nushell display.
+Row-preserving transformations such as `where`, `sort-by`, `take`, `drop`, and `reverse` keep the tree view when the result remains representable. Removed nodes are never reintroduced. A retained descendant whose original parent is gone is attached to its nearest retained ancestor; if none remains, it becomes a visual root labelled with its full path.
 
-## Saving the human tree
-
-A normal filename saves the human tree:
-
-```nu
-show-tree D:/Tools | save tree.txt
-```
-
-Filtered and sorted trees save as the filtered and sorted drawing:
-
-```nu
-show-tree D:/Tools
-| where size > 10mb
-| sort-by size --reverse
-| save large-tree.txt
-```
-
-The saved file contains Unicode tree glyphs, sizes, banner and total, but no ANSI colour escapes and no interactive hidden-entry reminder.
-
-If hidden entries should be part of the saved drawing, include them before saving:
-
-```nu
-show-tree D:/Tools --all | save tree-with-hidden.txt
-```
-
-PowerShell uses its ordinary pipeline:
-
-```powershell
-Show-Tree D:\Tools | Set-Content tree.txt
-Show-Tree D:\Tools -All | Set-Content tree-with-hidden.txt
-```
-
-The PowerShell reminder is interactive-only as well and is not part of piped tree output.
-
-There is no `to tree`, `--render`, or Show-Tree-specific output-path option. Saving belongs to the shell pipeline.
+Shape-changing operations such as `get size`, `group-by`, or a `select` that removes required tree fields fall back to normal Nushell display.
 
 ## Native `.showtree` snapshots
 
-Use `.showtree` when the goal is to persist the native Show-Tree value rather than its drawing:
+Use `.showtree` when the goal is to persist the native Show-Tree value rather than the drawing:
 
 ```nu
 show-tree D:/Tools | save tools.showtree
 ```
 
-The extension is never appended automatically. A `.showtree` snapshot stores a versioned NUON envelope containing the rows and enough effective lineage to reconstruct the same forest later:
+The extension is never appended automatically. A snapshot stores a versioned NUON envelope containing the public rows and enough effective lineage to restore the same forest:
 
 ```nu
 {
     format: show-tree
     schema_version: 1
-    producer_version: 0.1.4
+    producer_version: 0.1.5
     rows: [...]
     lineage: [...]
 }
 ```
 
-Visibility is resolved before persistence. Therefore:
-
-```nu
-show-tree D:/Tools | save visible.showtree
-show-tree D:/Tools --all | save all.showtree
-show-tree D:/Tools --short | save directories.showtree
-```
-
-produce different snapshots containing exactly the rows requested by each command. The interactive hidden-entry reminder itself is not persisted.
-
-Open a snapshot normally:
+Open it normally:
 
 ```nu
 open tools.showtree
 ```
 
-The rows and Show-Tree lineage metadata are restored, so the result immediately renders as a tree and remains pipeline-friendly:
+The result immediately renders as a tree again and remains pipeline-friendly:
 
 ```nu
 open tools.showtree
@@ -192,15 +129,15 @@ open tools.showtree
 | where size > 1mb
 ```
 
-A snapshot is not a live filesystem pointer. Reopening it does not rescan disk, so `--all` and `--short` apply when the snapshot is created, not when an existing snapshot is opened.
-
-Filtered snapshots contain only the rows that survived the pipeline, with their effective hierarchy recalculated:
+Snapshots contain exactly the rows selected when they are created:
 
 ```nu
-show-tree D:/Tools
-| where name in [src main.nu]
-| save subset.showtree
+show-tree D:/Tools | save visible.showtree
+show-tree D:/Tools --all | save all.showtree
+show-tree D:/Tools --short | save directories.showtree
 ```
+
+A snapshot is not a live filesystem pointer. Reopening it does not rescan disk.
 
 Explicit conversion is also available:
 
@@ -209,18 +146,7 @@ show-tree D:/Tools | to showtree
 open --raw tools.showtree | from showtree
 ```
 
-`--raw` keeps its normal Nushell meaning. `open --raw file.showtree` bypasses `from showtree`; `save --raw file.showtree` bypasses the custom serializer and delegates to builtin raw saving. `%save` remains the explicit builtin escape hatch.
-
-## Other machine formats
-
-JSON and NUON remain explicit conversions of the public rows:
-
-```nu
-show-tree D:/Tools | to json | save tree.json
-show-tree D:/Tools | to nuon | save tree.nuon
-```
-
-Private lineage and presentation metadata do not leak into those representations.
+`--raw` keeps its normal Nushell meaning. `%save` remains the explicit escape hatch to the builtin command.
 
 ## `$ans.last`
 
@@ -231,7 +157,7 @@ show-tree D:/Tools | where size > 10mb
 $ans.last
 ```
 
-Both render the filtered tree. Use `$ans.last | table` to inspect the flat rows explicitly.
+Both expressions render the filtered tree. Use `$ans.last | table` to inspect the flat rows explicitly.
 
 ## Options
 
@@ -246,8 +172,6 @@ Both render the filtered tree. Use `$ans.last | table` to inspect the flat rows 
 | Include hidden entries | `-All`, `-a` | `--all`, `-a` |
 | Hide folders with no included files | `-HideEmptyFolders`, `-e` | `--hide-empty-folders`, `-e` |
 | Help | `-Help`, `-h` | `--help`, `-h` |
-
-Default recursion is unlimited. `--short` changes row visibility, not traversal or size accounting. `--all` changes the filesystem visibility policy before rows are built.
 
 ## Filesystem semantics
 
@@ -264,9 +188,24 @@ PowerShell and Nushell share the same user-facing contract:
 - empty-folder hiding is evaluated after active traversal filters;
 - filesystem roots render using their full path.
 
-The Nushell backend requests complete structured `du --long --all` data internally and applies Show-Tree's visibility policy before public rows are created. Dot-prefixed entries are filtered directly; on Windows, Show-Tree also consults Nushell's platform-native `ls` visibility so the filesystem Hidden attribute is respected. The internal `du --long` flag is a backend implementation detail, not a Show-Tree user option.
+The Nushell backend requests complete structured `du --long --all` data internally and applies Show-Tree's visibility policy before public rows are created. On Windows it also consults Nushell's native `ls` visibility so the filesystem Hidden attribute is respected. The internal `du --long` flag is an implementation detail, not a Show-Tree option.
 
-PowerShell enumerates with `Get-ChildItem -Force` and applies the same Show-Tree visibility policy itself. On Windows, `-All` includes both dot-prefixed names and entries carrying the filesystem Hidden attribute.
+PowerShell enumerates with `Get-ChildItem -Force` and applies the same policy itself.
+
+## Renderer performance
+
+The Nushell renderer builds indexes for visible paths, lineage, and effective parent groups once per render. It no longer scans all visible rows again for every node just to discover its children, and parent resolution no longer scans the complete lineage for every lookup.
+
+A synthetic flat-tree benchmark on GitHub Actions measured:
+
+| Rows | Previous renderer | Indexed renderer |
+| ---: | ---: | ---: |
+| 501 | ~1.108 s | ~0.503 s |
+| 2,001 | ~11.701 s | ~2.195 s |
+
+A 4× input increase therefore changed from roughly 10.6× runtime growth to about 4.4× end-to-end growth. The isolated render-plan benchmark measured about 146 ms for 2,001 rows and 779 ms for 8,001 rows.
+
+CI enforces both absolute and scaling ceilings. Filesystem traversal is benchmarked separately on Windows. A proposed filename-index optimization for Windows traversal was rejected after measurement because it made the 1,500-file default case slower, about 828 ms to 982 ms on the measured runners. The benchmark, rather than the attractiveness of the data structure on a whiteboard, won that argument.
 
 ## Installation
 
@@ -296,8 +235,6 @@ Open a new Nushell session after installation. The parent Nu process that launch
 
 ## Repository layout
 
-Implementation code is kept out of the repository root:
-
 ```text
 Show-Tree/
 ├── src/
@@ -318,34 +255,25 @@ Show-Tree/
 └── README.md
 ```
 
-The root is reserved for user-facing installers, documentation and repository metadata. The installer points directly to `src/`.
+The Nushell implementation is split by concern:
 
-The Nushell implementation is intentionally split by concern:
-
-- `show-tree.nu`: traversal, visibility policy, normalization and native row contract;
-- `show-tree-display.nu`: REPL presentation, reconstruction and interactive-only notices;
+- `show-tree.nu`: traversal, visibility policy, normalization and native rows;
+- `show-tree-display.nu`: indexed tree reconstruction and REPL presentation;
 - `show-tree-format.nu`: `.showtree`, `to showtree`, `from showtree`;
-- `show-tree-save.nu`: tree-aware `save` dispatch without presentation notices.
+- `show-tree-save.nu`: tree-aware `save` dispatch.
 
 R3CLI remains vendored and SHA-verified under `vendor/R3CLI/`.
 
 ## Development
 
-CI targets Nushell 0.115.1 and Windows PowerShell integration. Coverage includes:
+CI targets Nushell 0.115.1 and PowerShell 7. Coverage includes structured rows, filtering/sorting/orphan promotion, `$ans.last`, `.showtree`, raw semantics, real pseudo-terminal rendering, hidden-entry behavior, folder-glyph output, installer repair/idempotence, PowerShell pipeline output, renderer scaling, and Windows traversal performance.
 
-- visible files and deep descendants in the no-flag tree;
-- dot-prefixed and Windows Hidden-attribute exclusion by default and inclusion through `all`;
-- directories-only `short` output with size accounting preserved;
-- interactive hidden-entry reminders and their absence from saved/piped tree output;
-- explicit depth and filtering behavior;
-- native flat output and direct child lists;
-- filtered reconstruction, orphan promotion, sorting and `$ans.last`;
-- human-tree saving;
-- `.showtree` save/open round trips and raw semantics;
-- real pseudo-terminal rendering of direct and reopened trees;
-- PowerShell pipeline-to-file output;
-- installer repair, config backup and idempotence;
-- vendored R3CLI integrity rejection.
+Performance tests live in:
+
+```text
+tests/Nushell.Performance.nu
+tests/Nushell.TraversalPerformance.nu
+```
 
 ## Requirements
 
