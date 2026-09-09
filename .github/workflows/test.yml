@@ -29,10 +29,6 @@ jobs:
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-display.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-format.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-save.nu | if not $in { exit 1 }'
-          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree.nu | if not $in { exit 1 }'
-          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-display.nu | if not $in { exit 1 }'
-          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-format.nu | if not $in { exit 1 }'
-          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-save.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check Show-Tree/install-show-tree.nu | if not $in { exit 1 }'
 
       - name: Test complete default traversal
@@ -128,14 +124,16 @@ jobs:
           if $env.SHOW_TREE_SENTINEL_BEFORE != 'before' or $env.SHOW_TREE_SENTINEL_AFTER != 'after' {
               error make { msg: 'surrounding config did not load' }
           }
+
           let installed_rows = (show-tree Show-Tree -d 1)
           if (($installed_rows | where type == file | is-empty)) { error make { msg: 'installed default Show-Tree still omitted files' } }
 
           let human = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
-          $installed_rows | save --force $human
+          show-tree Show-Tree -d 1 | save --force $human
           let human_text = (open --raw $human | ansi strip)
           if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
           if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
+          if not ($human_text | str contains 'README.md') { error make { msg: 'installed human tree omitted files by default' } }
 
           let snapshot = ($nu.temp-dir | path join 'show-tree-installed.showtree')
           show-tree Show-Tree -d 1 | save --force $snapshot
@@ -168,6 +166,7 @@ jobs:
           $savedText = Get-Content -LiteralPath $saved -Raw
           if ($savedText -notmatch 'SHOW-TREE') { throw 'PowerShell pipeline did not receive the tree banner.' }
           if ($savedText -notmatch 'Total size') { throw 'PowerShell pipeline did not receive the tree footer.' }
+          if ($savedText -notmatch 'README\.md') { throw 'PowerShell pipeline output omitted files by default.' }
           if ($savedText.Contains([string][char]27)) { throw 'PowerShell pipeline output contains ANSI escape sequences.' }
 
       - name: Reinstall both integrations idempotently
