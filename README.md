@@ -264,7 +264,7 @@ PowerShell and Nushell share the same user-facing contract:
 - empty-folder hiding is evaluated after active traversal filters;
 - filesystem roots render using their full path.
 
-The Nushell backend requests structured `du --long --all` data internally and then applies Show-Tree's own visibility policy. The internal `--long` there is a Nushell `du` implementation detail, not a Show-Tree user option.
+The Nushell backend requests complete structured `du --long --all` data internally and applies Show-Tree's visibility policy before public rows are created. Dot-prefixed entries are filtered directly; on Windows, Show-Tree also consults Nushell's platform-native `ls` visibility so the filesystem Hidden attribute is respected. The internal `du --long` flag is a backend implementation detail, not a Show-Tree user option.
 
 PowerShell enumerates with `Get-ChildItem -Force` and applies the same Show-Tree visibility policy itself. On Windows, `-All` includes both dot-prefixed names and entries carrying the filesystem Hidden attribute.
 
@@ -334,7 +334,7 @@ R3CLI remains vendored and SHA-verified under `vendor/R3CLI/`.
 CI targets Nushell 0.115.1 and Windows PowerShell integration. Coverage includes:
 
 - visible files and deep descendants in the no-flag tree;
-- hidden-entry exclusion by default and inclusion through `all`;
+- dot-prefixed and Windows Hidden-attribute exclusion by default and inclusion through `all`;
 - directories-only `short` output with size accounting preserved;
 - interactive hidden-entry reminders and their absence from saved/piped tree output;
 - explicit depth and filtering behavior;
