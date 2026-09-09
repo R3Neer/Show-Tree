@@ -200,14 +200,20 @@ let normal_json = (open $normal_json_path)
 assert equal ($normal_json | get a) [1 2]
 
 # Corrupt and future-schema files must fail clearly instead of returning partial
-# data that merely happens to look tree-shaped.
+# data that merely happens to look tree-shaped. `open` may wrap custom parser
+# failures, so validate both automatic rejection and the parser's precise message.
 let future_path = ($fixture | path join 'future.showtree')
 '{format: show-tree, schema_version: 999, producer_version: 9.9.9, rows: [], lineage: []}' | %save --raw --force $future_path
-let future_error = try {
+let future_open_error = try {
     open $future_path | ignore
     ''
 } catch {|err| $err.msg }
-assert ($future_error | str contains 'Unsupported .showtree schema version') 'A future .showtree schema was not rejected explicitly.'
+assert (($future_open_error | str trim) != '') 'open accepted an unsupported future .showtree schema.'
+let future_parser_error = try {
+    open --raw $future_path | from showtree | ignore
+    ''
+} catch {|err| $err.msg }
+assert ($future_parser_error | str contains 'Unsupported .showtree schema version') 'from showtree did not report the unsupported schema version explicitly.'
 
 rm --recursive --force $fixture
 print 'Nushell structured-output tests passed.'
