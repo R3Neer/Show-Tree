@@ -87,7 +87,8 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
     }
 
     let render_rows = ($meta | get --optional show_tree_render)
-    if $render_rows == null or (($value | describe) !~ '^list') {
+    let value_type = ($value | describe)
+    if $render_rows == null or ($value_type !~ '^(list|table)') {
         return false
     }
 
