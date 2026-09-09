@@ -23,15 +23,17 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Nushell output is a flat native table with name, type, size and path columns.'
-        'Direct interactive results are rendered as the R3CLI tree by the installed display integration.'
-        'Pipe to table, to json, where, sort-by or any other Nushell command to work with rows directly.'
+        'Nushell output is one flat native row per visible node: name, type, size, children and path.'
+        'children is a flat list of direct child names, never nested child records.'
+        'Representable filtered, sorted and sliced results keep the R3CLI tree as their automatic REPL view.'
+        'Pipe explicitly to table, to json or another renderer when you want that representation instead.'
         'Long controls file-row visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
         'show-tree'
         'show-tree . -d 2'
         'show-tree . -l -e'
+        'show-tree . -d 2 | where size > 1mb'
         'show-tree . -d 2 | table'
         'show-tree . -d 2 | to json'
     ]
@@ -163,33 +165,18 @@ def display-name [node: record]: nothing -> string {
     if ($candidate | str trim) == '' { $node.full_name } else { $candidate }
 }
 
-def tree-prefix [
-    ancestor_last: list<bool>
-    is_last: bool
-] {
-    let prefix = (
-        $ancestor_last
-        | each {|ancestor_is_last|
-            if $ancestor_is_last { '    ' } else { '│   ' }
-        }
-        | str join ''
-    )
-
-    $prefix + (if $is_last { '└── ' } else { '├── ' })
-}
-
-def to-render-row [
+def to-lineage-row [
     node: record
-    tree_label: string
-    depth: int
+    parent_path: any
+    child_names: list<string>
 ]: nothing -> record {
     {
-        tree: $tree_label
         name: (display-name $node)
         type: (if $node.kind == 'Folder' { 'dir' } else { 'file' })
         size: ($node.size_bytes | into filesize)
-        depth: $depth
+        children: $child_names
         path: $node.full_name
+        parent_path: $parent_path
     }
 }
 
@@ -197,24 +184,25 @@ def flatten-child [
     node: record
     long: bool
     hide_empty_folders: bool
-    ancestor_last: list<bool>
-    is_last: bool
-    depth: int
+    parent_path: string
 ]: nothing -> list<record> {
-    let prefix = (tree-prefix $ancestor_last $is_last)
-    let row = (to-render-row $node ($prefix + (display-name $node)) $depth)
+    let children = if $node.kind == 'Folder' {
+        visible-children $node $long $hide_empty_folders
+    } else {
+        []
+    }
+
+    let child_names = ($children | each {|child| display-name $child })
+    let row = (to-lineage-row $node $parent_path $child_names)
 
     if $node.kind != 'Folder' {
         return [$row]
     }
 
-    let children = (visible-children $node $long $hide_empty_folders)
     let descendants = (
         $children
-        | enumerate
-        | each {|item|
-            let child_is_last = ($item.index == (($children | length) - 1))
-            flatten-child $item.item $long $hide_empty_folders ([...$ancestor_last $is_last]) $child_is_last ($depth + 1)
+        | each {|child|
+            flatten-child $child $long $hide_empty_folders $node.full_name
         }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
@@ -227,19 +215,23 @@ def flatten-root [
     long: bool
     hide_empty_folders: bool
 ]: nothing -> list<record> {
-    let row = (to-render-row $root $root.full_name 0)
+    let children = if $root.kind == 'Folder' {
+        visible-children $root $long $hide_empty_folders
+    } else {
+        []
+    }
+
+    let child_names = ($children | each {|child| display-name $child })
+    let row = (to-lineage-row $root null $child_names)
 
     if $root.kind != 'Folder' {
         return [$row]
     }
 
-    let children = (visible-children $root $long $hide_empty_folders)
     let descendants = (
         $children
-        | enumerate
-        | each {|item|
-            let child_is_last = ($item.index == (($children | length) - 1))
-            flatten-child $item.item $long $hide_empty_folders [] $child_is_last 1
+        | each {|child|
+            flatten-child $child $long $hide_empty_folders $root.full_name
         }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
@@ -274,25 +266,24 @@ export def main [
         | sort-by full_name --ignore-case
     )
 
-    let render_rows = (
+    let lineage = (
         $roots
         | each {|root| flatten-root $root $long $hide_empty_folders }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
-    # Public rows keep the semantic basename alongside the full path. Nushell's
-    # ordinary table renderer may trim very long paths to terminal width, but it
-    # no longer has to summarize descendants as nested [table N rows] values.
-    let result = ($render_rows | select name type size path)
-    let render_snapshot = $render_rows
+    # Every visible filesystem node is a first-level row. `children` contains only
+    # direct child names, so explicit tables stay flat instead of nesting records.
+    let result = ($lineage | select name type size children path)
+    let render_lineage = $lineage
 
-    # Always attach presentation metadata to the native value. Direct REPL calls
-    # need it for the R3CLI tree; pipelines are still ordinary Nu because explicit
-    # renderers consume it and transformed values are checked before redraw.
+    # Presentation metadata records the original parent relation. Filters and
+    # ordering commands can change the public rows while this lineage lets the REPL
+    # reconstruct a truthful tree from exactly the rows that remain.
     $result | metadata set {||
         merge {
             show_tree_result: true
-            show_tree_render: $render_snapshot
+            show_tree_render: $render_lineage
         }
     }
 }
