@@ -142,13 +142,13 @@ assert ($snapshot_raw | str contains 'schema_version') '.showtree did not store 
 assert ($snapshot_raw | str contains 'producer_version') '.showtree did not store the producer version.'
 assert ($snapshot_raw | str contains 'lineage') '.showtree did not persist lineage.'
 
+let reopened_meta = (open $snapshot_path | metadata)
+assert equal ($reopened_meta.show_tree_result? | default false) true
+assert equal ($reopened_meta.show_tree_render | length) ($with_files | length)
+assert equal (($reopened_meta.show_tree_render | where path == $alpha_path | first).parent_path) ($fixture | path expand)
 let reopened = (open $snapshot_path)
 assert equal ($reopened | columns) $expected_columns
 assert equal ($reopened | to nuon) ($with_files | to nuon)
-let reopened_meta = ($reopened | metadata)
-assert equal ($reopened_meta.show_tree_result? | default false) true
-assert equal ($reopened_meta.show_tree_render | length) ($reopened | length)
-assert equal (($reopened_meta.show_tree_render | where path == $alpha_path | first).parent_path) ($fixture | path expand)
 
 # A filtered snapshot is self-contained. It persists only rows that survived the
 # pipeline and records their effective promoted hierarchy, not the hidden original.
@@ -156,21 +156,24 @@ let filtered_snapshot_path = ($fixture | path join 'filtered.showtree')
 show-tree $fixture --max-depth 2 --long
 | where name in [alpha nested.txt]
 | save --force $filtered_snapshot_path
-let reopened_filtered = (open $filtered_snapshot_path)
-assert equal ($reopened_filtered | get name) [alpha nested.txt]
-let reopened_filtered_meta = ($reopened_filtered | metadata)
+let reopened_filtered_meta = (open $filtered_snapshot_path | metadata)
 let alpha_lineage = ($reopened_filtered_meta.show_tree_render | where path == $alpha_path | first)
 let nested_lineage = ($reopened_filtered_meta.show_tree_render | where path == $nested_path | first)
 assert equal $alpha_lineage.parent_path null
 assert equal $nested_lineage.parent_path $alpha_path
 assert (not (($reopened_filtered_meta.show_tree_render | get path) | any {|path| $path | str contains 'beta' })) 'Filtered .showtree snapshot retained removed lineage.'
+let reopened_filtered = (open $filtered_snapshot_path)
+assert equal ($reopened_filtered | get name) [alpha nested.txt]
+let reopened_filtered_again_meta = (open $filtered_snapshot_path | where name == nested.txt | metadata)
+assert equal ($reopened_filtered_again_meta.show_tree_result? | default false) true
 
 # The explicit converter is equivalent to the extension-driven format and can be
 # used without a .showtree filename. from showtree restores the same metadata.
 let explicit_encoded = ($with_files | to showtree)
+let explicit_roundtrip_meta = ($explicit_encoded | from showtree | metadata)
+assert equal ($explicit_roundtrip_meta.show_tree_result? | default false) true
 let explicit_roundtrip = ($explicit_encoded | from showtree)
 assert equal ($explicit_roundtrip | to nuon) ($with_files | to nuon)
-assert equal (($explicit_roundtrip | metadata).show_tree_result? | default false) true
 
 let explicit_text_path = ($fixture | path join 'snapshot.data')
 $explicit_encoded | save --force $explicit_text_path
