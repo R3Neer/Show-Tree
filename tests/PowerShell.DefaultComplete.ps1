@@ -12,10 +12,10 @@ Set-Content -LiteralPath (Join-Path $deep 'deep.txt') -Value 'deep' -NoNewline
 $script = Join-Path $PSScriptRoot '..\src\powershell\Show-Tree.ps1'
 
 # A direct invocation should show the hidden-entry reminder when -All is absent.
-$direct = @(& $script $fixture 6>&1)
-$directText = ($direct | ForEach-Object {
-    if ($_ -is [System.Management.Automation.InformationRecord]) { [string]$_.MessageData } else { [string]$_ }
-}) -join [Environment]::NewLine
+# R3CLI warning status uses PowerShell's warning stream, so redirect stream 3 only
+# for this assertion.
+$direct = @(& $script $fixture 3>&1 6>&1)
+$directText = ($direct | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
 
 if ($directText -notmatch 'Hidden entries are omitted') { throw 'Interactive PowerShell output did not show the hidden-entry reminder.' }
 
