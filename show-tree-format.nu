@@ -1,6 +1,6 @@
 # Native .showtree persistence for Nushell.
 #
-# `to showtree` serializes a representable Show-Tree value as a versioned NUON
+# `to showtree` serializes Show-Tree-compatible native rows as a versioned NUON
 # envelope containing the current public rows plus only the effective parent
 # relation needed to reconstruct the same forest later. `from showtree` validates
 # that envelope and restores the private Show-Tree metadata used by the renderer.
@@ -70,65 +70,23 @@ def validate-rows [rows: list<any>] {
 }
 
 
-def validate-source [meta: record, rows: list<any>] {
-    if ((($meta | get --optional show_tree_result) | default false) != true) {
-        fail 'to showtree requires a Show-Tree value with lineage metadata.'
-    }
+def nearest-path-parent [path: string, visible_paths: list<any>] {
+    mut current = $path
 
-    let lineage = ($meta | get --optional show_tree_render)
-    if $lineage == null {
-        fail 'to showtree requires Show-Tree lineage metadata.'
-    }
-
-    validate-rows $rows
-
-    if ($rows | is-empty) {
-        return
-    }
-
-    let known_paths = ($lineage | get path)
-    if not ($rows | get path | all {|path| $path in $known_paths }) {
-        fail 'The Show-Tree value contains rows that are not present in its lineage metadata.'
-    }
-}
-
-
-def nearest-visible-parent [
-    path: string
-    visible_paths: list<any>
-    lineage: list<any>
-] {
-    let source = (lineage-row $path $lineage)
-    if $source == null {
-        return null
-    }
-
-    mut parent = ($source | get --optional parent_path | default null)
-    mut seen = []
-
-    while $parent != null {
-        if $parent in $seen {
-            fail $'Show-Tree lineage contains a parent cycle involving ($parent).'
+    loop {
+        let parent = ($current | path dirname)
+        if ($parent == $current) or ($parent == '') {
+            return null
         }
-        $seen = ($seen | append $parent)
-
         if $parent in $visible_paths {
             return $parent
         }
-
-        let ancestor = (lineage-row $parent $lineage)
-        if $ancestor == null {
-            return null
-        }
-
-        $parent = ($ancestor | get --optional parent_path | default null)
+        $current = $parent
     }
-
-    null
 }
 
 
-def snapshot-lineage [rows: list<any>, source_lineage: list<any>]: nothing -> list<record> {
+def snapshot-lineage [rows: list<any>]: nothing -> list<record> {
     if ($rows | is-empty) {
         return []
     }
@@ -138,7 +96,7 @@ def snapshot-lineage [rows: list<any>, source_lineage: list<any>]: nothing -> li
     $rows | each {|row|
         {
             path: $row.path
-            parent_path: (nearest-visible-parent $row.path $visible_paths $source_lineage)
+            parent_path: (nearest-path-parent $row.path $visible_paths)
         }
     }
 }
@@ -232,12 +190,15 @@ def decode-input [value: any]: nothing -> string {
 }
 
 
-export def showtree-serialize-internal [value: any, meta: record]: nothing -> string {
-    let rows = (as-row-list $value)
-    validate-source $meta $rows
+export def showtree-serialize-internal [value: any]: nothing -> string {
+    let value_type = ($value | describe)
+    if $value_type !~ '^(record|list|table)' {
+        fail $'to showtree expects Show-Tree-compatible rows, got ($value_type).'
+    }
 
-    let source_lineage = ($meta | get show_tree_render)
-    let lineage = (snapshot-lineage $rows $source_lineage)
+    let rows = (as-row-list $value)
+    validate-rows $rows
+    let lineage = (snapshot-lineage $rows)
 
     {
         format: $FORMAT_NAME
@@ -250,9 +211,7 @@ export def showtree-serialize-internal [value: any, meta: record]: nothing -> st
 
 
 export def 'to showtree' []: any -> string {
-    metadata access {|meta|
-        showtree-serialize-internal $in $meta
-    }
+    showtree-serialize-internal $in
 }
 
 
