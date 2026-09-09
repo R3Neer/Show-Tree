@@ -40,6 +40,9 @@ jobs:
       - name: Test raw and builtin showtree save contract
         run: nu Show-Tree/tests/Nushell.ShowtreeRaw.nu
 
+      - name: Test folder glyph rendering
+        run: nu --no-config-file Show-Tree/tests/Nushell.Rendering.nu
+
       - name: Benchmark renderer scaling
         run: nu --no-config-file Show-Tree/tests/Nushell.Performance.nu
 
@@ -75,6 +78,10 @@ jobs:
       - name: Test complete default PowerShell traversal
         shell: pwsh
         run: ./Show-Tree/tests/PowerShell.DefaultComplete.ps1
+
+      - name: Test PowerShell folder glyph rendering
+        shell: pwsh
+        run: ./Show-Tree/tests/PowerShell.Rendering.ps1
 
       - name: Reject a corrupted vendored dependency
         shell: pwsh
@@ -145,6 +152,8 @@ jobs:
           if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
           if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
           if not ($human_text | str contains 'README.md') { error make { msg: 'installed human tree omitted files by default' } }
+          if not ($human_text | str contains '📁') { error make { msg: 'installed human-tree save is missing folder glyphs' } }
+          if ($human_text | str contains '[Folder]') { error make { msg: 'installed human-tree save still contains the legacy Folder label' } }
           if ($human_text | str contains 'Hidden entries are omitted') { error make { msg: 'installed human-tree save leaked the interactive hidden-entry reminder' } }
 
           let snapshot = ($nu.temp-dir | path join 'show-tree-installed.showtree')
@@ -179,6 +188,8 @@ jobs:
           if ($savedText -notmatch 'SHOW-TREE') { throw 'PowerShell pipeline did not receive the tree banner.' }
           if ($savedText -notmatch 'Total size') { throw 'PowerShell pipeline did not receive the tree footer.' }
           if ($savedText -notmatch 'README\.md') { throw 'PowerShell pipeline output omitted files by default.' }
+          if ($savedText -notmatch '📁') { throw 'PowerShell pipeline output is missing folder glyphs.' }
+          if ($savedText -match '\[Folder\]') { throw 'PowerShell pipeline output still contains the legacy Folder label.' }
           if ($savedText -match 'Hidden entries are omitted') { throw 'PowerShell pipeline leaked the interactive hidden-entry reminder.' }
           if ($savedText.Contains([string][char]27)) { throw 'PowerShell pipeline output contains ANSI escape sequences.' }
 
