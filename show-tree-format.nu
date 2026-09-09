@@ -45,10 +45,15 @@ def validate-rows [rows: list<any>] {
         fail 'Show-Tree rows must be records.'
     }
 
-    let columns = ($rows | columns)
-    let required = [name type size path]
-    if not ($required | all {|column| $column in $columns }) {
+    if not ($rows | all {|row|
+        let columns = ($row | columns)
+        [name type size path] | all {|column| $column in $columns }
+    }) {
         fail 'Show-Tree rows must contain name, type, size, and path.'
+    }
+
+    if not ($rows | all {|row| ($row.name | describe) == 'string' }) {
+        fail 'Every Show-Tree row name must be a string.'
     }
 
     if not ($rows | all {|row| ($row.path | describe) == 'string' }) {
@@ -61,6 +66,17 @@ def validate-rows [rows: list<any>] {
 
     if not ($rows | all {|row| ($row.size | describe) =~ '^(filesize|int|float)' }) {
         fail 'Every Show-Tree row size must be numeric or filesize.'
+    }
+
+    if not ($rows | all {|row|
+        let children = ($row | get --optional children)
+        if $children == null {
+            true
+        } else {
+            (($children | describe) =~ '^(list|table)') and ($children | all {|child| ($child | describe) == 'string' })
+        }
+    }) {
+        fail 'Every Show-Tree children field must be a list of strings when present.'
     }
 
     let paths = ($rows | get path)
@@ -118,8 +134,10 @@ def validate-snapshot-lineage [rows: list<any>, lineage: list<any>] {
         fail 'A non-empty Show-Tree snapshot must contain lineage entries.'
     }
 
-    let lineage_columns = ($lineage | columns)
-    if not (('path' in $lineage_columns) and ('parent_path' in $lineage_columns)) {
+    if not ($lineage | all {|row|
+        let columns = ($row | columns)
+        ('path' in $columns) and ('parent_path' in $columns)
+    }) {
         fail 'Show-Tree lineage must contain path and parent_path.'
     }
 
