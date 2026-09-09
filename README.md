@@ -167,7 +167,7 @@ You can also work with the child lists natively:
 
 ```nu
 show-tree D:/Tools -d 3 -l
-| where ($it.children | length) > 0
+| where {|row| ($row.children | length) > 0 }
 | select name children
 ```
 
