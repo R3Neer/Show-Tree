@@ -12,3 +12,4 @@ const SHOW_TREE = (path self ../show-tree.nu)
 const SHOW_TREE_DISPLAY = (path self ../show-tree-display.nu)
 use $SHOW_TREE [main]
 use $SHOW_TREE_DISPLAY
+use $SHOW_TREE_DISPLAY save
