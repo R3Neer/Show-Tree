@@ -303,7 +303,7 @@ export def save [
     --force (-f)
     --progress (-p)
 ] {
-    $in | metadata access {|meta|
+    metadata access {|meta|
         let value = $in
         let output = if (show-tree-can-render-internal $meta $value) {
             show-tree-render-text-internal $value ($meta | get show_tree_render)
