@@ -40,6 +40,9 @@ jobs:
       - name: Test raw and builtin showtree save contract
         run: nu Show-Tree/tests/Nushell.ShowtreeRaw.nu
 
+      - name: Benchmark renderer scaling
+        run: nu Show-Tree/tests/Nushell.Performance.nu
+
       - name: Test direct rendering path
         run: nu --no-config-file -c 'use Show-Tree/src/nushell/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
 
