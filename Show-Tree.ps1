@@ -78,7 +78,7 @@ $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "0.1.1"
+        Version = "0.1.2"
         Description = "Displays a size-aware filesystem tree with depth, size and visibility filtering."
         Invocation = "show-tree"
         Groups = @()
@@ -342,7 +342,7 @@ function Get-RootNodes {
                         -Path $item.FullName `
                         -MaxDepth $MaxDepth `
                         -MinSize $MinSize `
-                        -ExcludePattern $ExcludePattern `
+                        -ExcludePattern $excludePattern `
                         -All:$All `
                         -Dereference:$Dereference)
                 )
