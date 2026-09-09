@@ -214,7 +214,17 @@ if ($installPowerShell) {
     $powerShellProfileBlock = @(
         "# >>> Show-Tree >>>"
         "function Show-Tree {"
-        "    & '$escapedPowerShell' @args"
+        "    if (`$MyInvocation.PipelinePosition -lt `$MyInvocation.PipelineLength) {"
+        "        & '$escapedPowerShell' @args 6>&1 | ForEach-Object {"
+        "            if (`$_ -is [System.Management.Automation.InformationRecord]) {"
+        "                [string]`$_.MessageData"
+        "            } else {"
+        "                `$_"
+        "            }"
+        "        }"
+        "    } else {"
+        "        & '$escapedPowerShell' @args"
+        "    }"
         "}"
         ""
         "function tree {"
@@ -233,9 +243,23 @@ if ($installPowerShell) {
         -EndMarker "# <<< Show-Tree <<<" `
         -Block $powerShellProfileBlock
 
+    $showTreeBody = @(
+        'if ($MyInvocation.PipelinePosition -lt $MyInvocation.PipelineLength) {'
+        "    & '$escapedPowerShell' @args 6>&1 | ForEach-Object {"
+        '        if ($_ -is [System.Management.Automation.InformationRecord]) {'
+        '            [string]$_.MessageData'
+        '        } else {'
+        '            $_'
+        '        }'
+        '    }'
+        '} else {'
+        "    & '$escapedPowerShell' @args"
+        '}'
+    ) -join [Environment]::NewLine
+
     Set-Item `
         -Path Function:\global:Show-Tree `
-        -Value ([scriptblock]::Create("& '$escapedPowerShell' @args"))
+        -Value ([scriptblock]::Create($showTreeBody))
 
     $treeBody = @(
         "Import-Module '$escapedR3cli' -ErrorAction Stop"
