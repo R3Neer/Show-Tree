@@ -54,6 +54,15 @@ $short = @(
 if ($short -match 'root\.txt' -or $short -match 'deep\.txt') { throw '-Short should suppress file rows.' }
 if ($short -notmatch 'a' -or $short -notmatch 'b' -or $short -notmatch 'c') { throw '-Short lost the recursive directory chain.' }
 
+$explicitFile = Join-Path $fixture 'root.txt'
+$shortFile = @(
+    & $script $explicitFile -Short 6>&1 | ForEach-Object {
+        if ($_ -is [System.Management.Automation.InformationRecord]) { [string]$_.MessageData } else { [string]$_ }
+    }
+) -join [Environment]::NewLine
+
+if ($shortFile -match 'root\.txt') { throw '-Short should suppress an explicitly targeted file root too.' }
+
 $limited = @(
     & $script $fixture -MaxDepth 1 6>&1 | ForEach-Object {
         if ($_ -is [System.Management.Automation.InformationRecord]) {
