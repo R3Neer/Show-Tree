@@ -205,9 +205,9 @@ export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -
 
 
 # A transformed value remains tree-renderable while it still carries Show-Tree
-# lineage metadata and keeps the semantic fields needed to identify each row.
-# Filters, take/drop, reverse and sort-by therefore stay visual trees. Commands
-# such as `get size`, `group-by` or `select name size` naturally fall back to Nu.
+# lineage metadata and keeps valid semantic fields for a unique set of original
+# nodes. Filters, take/drop, reverse and sort-by therefore stay visual trees;
+# malformed row rewrites and shape-changing commands fall back to normal Nu.
 export def show-tree-can-render-internal [meta: record, value: any]: nothing -> bool {
     if ((($meta | get --optional show_tree_result) | default false) != true) {
         return false
@@ -234,8 +234,25 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
         return false
     }
 
+    if not ($rows | all {|row| ($row.path | describe) == 'string' }) {
+        return false
+    }
+
+    if not ($rows | all {|row| $row.type in [dir file] }) {
+        return false
+    }
+
+    if not ($rows | all {|row| ($row.size | describe) =~ '^(filesize|int|float)' }) {
+        return false
+    }
+
+    let paths = ($rows | get path)
+    if (($paths | uniq | length) != ($paths | length)) {
+        return false
+    }
+
     let known_paths = ($lineage | get path)
-    $rows | all {|row| $row.path in $known_paths }
+    $paths | all {|path| $path in $known_paths }
 }
 
 
