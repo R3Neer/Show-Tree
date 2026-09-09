@@ -31,7 +31,7 @@ def save-builtin [
 
 def filename-extension [filename: path]: nothing -> string {
     let parsed = ($filename | path parse)
-    (($parsed | get --optional extension) | default '' | into string | str downcase)
+    (($parsed | get --optional extension) | default '' | into string | str lowercase)
 }
 
 
@@ -48,22 +48,20 @@ export def save [
         let is_tree = (show-tree-can-render-internal $meta $value)
         let is_showtree_file = ((filename-extension $filename) == 'showtree')
 
-        if $is_tree and $is_showtree_file {
+        if $is_showtree_file {
             if $raw {
-                # Preserve Nushell's normal --raw meaning: bypass the extension
-                # serializer and hand the original structured value to builtin save.
+                # Preserve Nushell's native --raw meaning: bypass the custom
+                # extension serializer and hand the original value to builtin save.
                 save-builtin $value $filename $stderr true $append $force $progress
+            } else if $stderr != null {
+                # Builtin save only permits --stderr together with --raw. Do not
+                # accidentally make an invalid invocation valid by serializing first.
+                save-builtin $value $filename $stderr false $append $force $progress
             } else {
-                if $stderr != null {
-                    # Builtin save only permits --stderr together with --raw. Do not
-                    # accidentally make an invalid invocation valid by serializing first.
-                    save-builtin $value $filename $stderr false $append $force $progress
-                } else {
-                    let serialized = (showtree-serialize-internal $value $meta)
-                    # The serializer has already produced the complete file bytes as
-                    # UTF-8 text, so use builtin raw writing to avoid a second format pass.
-                    save-builtin $serialized $filename null true $append $force $progress
-                }
+                let serialized = (showtree-serialize-internal $value)
+                # The serializer has produced the complete UTF-8 file text. Write it
+                # raw so the .showtree extension cannot trigger a second format pass.
+                save-builtin $serialized $filename null true $append $force $progress
             }
             return
         }
