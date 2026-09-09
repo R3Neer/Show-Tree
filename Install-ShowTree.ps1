@@ -15,11 +15,11 @@ $installPowerShell = -not $NushellOnly
 $installNushell = -not $PowerShellOnly
 
 $showTreeRoot = $PSScriptRoot
-$showTreePowerShell = Join-Path $showTreeRoot 'Show-Tree.ps1'
-$showTreeNushell = Join-Path $showTreeRoot 'show-tree.nu'
-$showTreeDisplay = Join-Path $showTreeRoot 'show-tree-display.nu'
-$showTreeFormat = Join-Path $showTreeRoot 'show-tree-format.nu'
-$showTreeSave = Join-Path $showTreeRoot 'show-tree-save.nu'
+$showTreePowerShell = Join-Path $showTreeRoot 'src\powershell\Show-Tree.ps1'
+$showTreeNushell = Join-Path $showTreeRoot 'src\nushell\show-tree.nu'
+$showTreeDisplay = Join-Path $showTreeRoot 'src\nushell\show-tree-display.nu'
+$showTreeFormat = Join-Path $showTreeRoot 'src\nushell\show-tree-format.nu'
+$showTreeSave = Join-Path $showTreeRoot 'src\nushell\show-tree-save.nu'
 $dependencyManifest = Join-Path $showTreeRoot 'dependencies.json'
 $r3cliPowerShellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\powershell'
 $r3cliNushellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\nushell\r3cli'
@@ -116,8 +116,6 @@ function Get-MarkedBlockCandidate {
         throw "Refusing to modify the file because the Show-Tree marker order is invalid."
     }
 
-    # Replace in place instead of removing the old block and appending a new one.
-    # This preserves the ordering and semantics of the user's surrounding config.
     return (
         $Existing.Substring(0, $match.Index) +
         $Block.Trim() +
@@ -198,8 +196,6 @@ function Set-NushellConfigSafely {
             Copy-Item -LiteralPath $Path -Destination ($Path + '.show-tree.bak') -Force
         }
 
-        # Write only after the complete candidate has passed nu-check. A failed
-        # generation or validation therefore leaves the user's config untouched.
         Move-Item -LiteralPath $candidatePath -Destination $Path -Force
     }
     finally {
@@ -281,8 +277,6 @@ if ($installNushell) {
         throw "Nushell was not found in PATH."
     }
 
-    # Locate config.nu without loading it. This is essential for repair installs:
-    # a broken previous Show-Tree block must not prevent the installer from running.
     $nuConfigPath = (
         & $nu.Source --no-config-file -c 'print --no-newline $nu.config-path' |
             Out-String
@@ -297,8 +291,6 @@ if ($installNushell) {
     $nuFormatPath = $showTreeFormat.Replace("\", "/").Replace("'", "''")
     $nuSavePath = $showTreeSave.Replace("\", "/").Replace("'", "''")
 
-    # Keep config.nu deliberately small. Traversal, presentation, persistence and
-    # save dispatch live in tested modules rather than generated user config code.
     $nuProfileBlock = @(
         "# >>> Show-Tree >>>"
         "use '$nuScriptPath' [main show-tree-help tree]"

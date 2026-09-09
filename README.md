@@ -2,48 +2,52 @@
 
 [![Test](https://github.com/R3Neer/Show-Tree/actions/workflows/test.yml/badge.svg)](https://github.com/R3Neer/Show-Tree/actions/workflows/test.yml)
 
-A size-aware filesystem tree for PowerShell and Nushell, with an R3CLI terminal view for humans and native Nushell rows for pipelines.
+A size-aware filesystem tree for PowerShell and Nushell, rendered with R3CLI while preserving native Nushell data for pipelines.
 
-Show-Tree is built around one rule: **the tree is a presentation of native data, not a separate text-only mode**.
+## Default behavior
+
+`show-tree` now means the complete tree. With no visibility or depth filters it includes:
+
+- directories;
+- files;
+- hidden and dot-prefixed entries;
+- every descendant recursively, with no depth limit.
+
+```nu
+show-tree D:/Tools
+```
+
+The historical `--long` / `-l` and `--all` / `-a` switches remain accepted for compatibility, but their old opt-in behavior is now the default. They are therefore no-ops in 0.1.3. Explicit filters still work normally:
+
+```nu
+show-tree D:/Tools -d 3
+show-tree D:/Tools -m 10mb -e
+show-tree D:/Tools -x '*.tmp'
+```
+
+PowerShell follows the same contract:
+
+```powershell
+Show-Tree D:\Tools
+Show-Tree D:\Tools -MaxDepth 3
+```
+
+## Nushell data model
+
+The tree is a presentation of native data, not a text-only mode.
 
 ```text
 show-tree
    │
    ▼
-native Nushell rows + private lineage metadata
+native rows + private lineage metadata
    │
    ├── direct REPL result ────────────────> R3CLI tree
    ├── where / sort-by / take / reverse ──> rebuilt R3CLI tree
-   ├── save tree.txt ─────────────────────> same tree as plain UTF-8 text
+   ├── save tree.txt ─────────────────────> human tree as UTF-8 text
    ├── save snapshot.showtree ────────────> native persistent snapshot
    ├── to json / to nuon ─────────────────> explicit machine representation
    └── table ─────────────────────────────> explicit Nushell table
-```
-
-R3CLI is bundled as a verified private dependency. Users do not need a separate R3CLI checkout or Python runtime.
-
-## Quick start
-
-```nu
-show-tree D:/Tools -d 2
-```
-
-A direct result is rendered as a tree:
-
-```text
-SHOW-TREE
-D:\Tools [Folder] (...)
-├── ModpackTools [Folder] (...)
-├── R3CLI [Folder] (...)
-└── Show-Tree [Folder] (...)
-
-Total size       ...
-```
-
-The value underneath is still ordinary Nushell data. Ask for a table explicitly:
-
-```nu
-show-tree D:/Tools -d 2 | table
 ```
 
 The public row contract is:
@@ -58,204 +62,129 @@ The public row contract is:
 }
 ```
 
-Every visible filesystem node is one top-level row. `children` contains only direct child names, never nested child records, so explicit tables do not collapse into `[table 36 rows]` archaeology.
+Every visible filesystem node is one top-level row. `children` contains direct child names, never nested records.
 
 ## Tree-first pipelines
 
-Representable row-preserving transformations keep the tree view:
+Row-preserving transformations keep the tree view:
 
 ```nu
-show-tree D:/Tools -d 3 -l
+show-tree D:/Tools
 | where size > 10mb
 | sort-by size --reverse
 ```
 
+The renderer uses exactly the rows that remain. Removed nodes are never reintroduced. If a retained node loses its parent, it is attached to the nearest retained ancestor; if none remains, it becomes a visual root labelled with its full path.
+
+Hierarchy wins over impossible sort orders: parents stay above descendants while transformed row order still controls roots and siblings where possible.
+
+Use `table` when you explicitly want the flat Nu table:
+
 ```nu
-show-tree D:/Tools -d 3
-| where type == dir
-| take 10
+show-tree D:/Tools | table
 ```
 
-The renderer uses exactly the rows that remain. It never resurrects a node removed by `where`, `take`, `drop`, or another filter.
+Shape-changing commands such as `get size`, `group-by`, or a `select` that removes required tree fields fall back to normal Nushell display.
 
-If a retained node loses its parent, Show-Tree attaches it to the nearest retained ancestor. If no retained ancestor exists, it becomes a visual root and is labelled with its full path. Sorting is hierarchy-safe: parents stay above descendants, while the transformed row order controls roots and siblings where the hierarchy allows it.
+## Saving the human tree
 
-The automatic tree view requires the semantic fields `name`, `type`, `size`, and `path` plus Show-Tree metadata. Thus this remains a tree:
+A normal filename saves the same human tree shown in the REPL:
 
 ```nu
-show-tree D:/Tools -d 2 | reject children
+show-tree D:/Tools | save tree.txt
 ```
 
-but this no longer contains enough information to draw one and falls back to normal Nu display:
+Filtered and sorted trees save as the filtered and sorted drawing:
 
 ```nu
-show-tree D:/Tools -d 2 | select name size
-```
-
-Shape-changing commands such as `get size` or `group-by` likewise use Nushell's normal representation.
-
-## Saving a human tree
-
-The installed `save` wrapper makes the obvious command do the obvious thing:
-
-```nu
-show-tree D:/Tools -d 3 -l | save tree.txt
-```
-
-The file contains the same human tree shown by the REPL, including Unicode branches, sizes, banner and total, but without ANSI colour escapes.
-
-Transformed results save truthfully too:
-
-```nu
-show-tree D:/Tools -d 4 -l
-| where size > 1mb
+show-tree D:/Tools
+| where size > 10mb
 | sort-by size --reverse
 | save large-tree.txt
 ```
 
-There is no `to tree`, `--render`, or Show-Tree-specific output-path option. If the target is not `.showtree`, a representable Show-Tree value is saved as the drawing.
+The file contains Unicode tree glyphs but no ANSI colour escapes. There is no `to tree`, `--render`, or Show-Tree-specific output-path option.
 
-For unrelated values the wrapper delegates to Nushell's builtin `%save`, preserving the normal `--raw`, `--append`, `--force`, `--stderr`, and `--progress` semantics.
+PowerShell uses its ordinary pipeline:
+
+```powershell
+Show-Tree D:\Tools | Set-Content tree.txt
+```
 
 ## Native `.showtree` snapshots
 
-Use the `.showtree` extension when the goal is not a drawing but a persistent Show-Tree value:
+Use `.showtree` when the goal is to persist the native Show-Tree value rather than its drawing:
 
 ```nu
-show-tree D:/Tools -d 3 -l | save tools.showtree
+show-tree D:/Tools | save tools.showtree
 ```
 
-The extension is **never added automatically**. A filename such as `tools.txt`, `tools.log`, or simply `tools` keeps the normal human-tree save behavior. Persistence is explicit either through `.showtree` or through `to showtree`.
-
-A `.showtree` file stores a versioned NUON envelope containing:
+The extension is never appended automatically. A `.showtree` snapshot stores a versioned NUON envelope containing the rows and enough effective lineage to reconstruct the same forest later:
 
 ```nu
 {
     format: show-tree
     schema_version: 1
-    producer_version: 0.1.2
+    producer_version: 0.1.3
     rows: [...]
     lineage: [...]
 }
 ```
 
-NUON is an implementation detail, but it matters for one useful reason: Nushell-native values such as `filesize` survive the round trip without inventing a second type system inside JSON.
-
-Open the snapshot normally:
+Open it normally:
 
 ```nu
 open tools.showtree
 ```
 
-Because the installer imports `from showtree`, Nushell's normal custom-format discovery parses the file and restores the native rows plus Show-Tree metadata. The result therefore renders immediately as the R3CLI tree.
-
-It is still data, so normal pipelines continue to work:
+The rows and Show-Tree metadata are restored, so the result immediately renders as a tree and remains pipeline-friendly:
 
 ```nu
 open tools.showtree
-| where size > 10mb
-| sort-by size --reverse
+| where type == file
+| where size > 1mb
 ```
 
-That produces a newly reconstructed tree from the persisted rows. The filesystem is not rescanned. A `.showtree` file is a snapshot, not a live pointer to the original directory.
+A snapshot is not a live filesystem pointer. Reopening it does not rescan disk.
 
-### Filtered snapshots are snapshots of the filter
+Filtered snapshots contain only the rows that survived the pipeline, with their effective hierarchy recalculated:
 
 ```nu
-show-tree D:/Tools -d 4 -l
+show-tree D:/Tools
 | where name in [src main.nu]
 | save subset.showtree
 ```
 
-Only the surviving rows are stored. Show-Tree recomputes the effective parent relation from those surviving filesystem paths, so omitted ancestors do not linger invisibly inside the file. Reopening `subset.showtree` reproduces that filtered forest as its new baseline.
-
-### Explicit conversion
-
-The same format can be requested without relying on a filename extension:
+Explicit conversion is also available:
 
 ```nu
-show-tree D:/Tools -d 3 -l | to showtree
-```
-
-and parsed explicitly with:
-
-```nu
+show-tree D:/Tools | to showtree
 open --raw tools.showtree | from showtree
 ```
 
-This is useful when the serialized text travels through another channel rather than directly to a `.showtree` file.
+`--raw` keeps its normal Nushell meaning. `open --raw file.showtree` bypasses `from showtree`; `save --raw file.showtree` bypasses the custom serializer and delegates to builtin raw saving. `%save` remains the explicit builtin escape hatch.
 
-### `--raw` keeps its Nushell meaning
+## Other machine formats
 
-Show-Tree does not overload `--raw`.
-
-```nu
-open --raw tools.showtree
-```
-
-bypasses `from showtree` and returns the raw serialized envelope, exactly as `open --raw` bypasses parsers for other formats.
-
-Likewise:
+JSON and NUON remain explicit conversions of the public rows:
 
 ```nu
-show-tree D:/Tools -l | save --raw tools.showtree
+show-tree D:/Tools | to json | save tree.json
+show-tree D:/Tools | to nuon | save tree.nuon
 ```
 
-bypasses the `.showtree` serializer and delegates the original value to builtin `%save --raw`. Whether that raw value can be written is therefore governed by Nushell's ordinary raw-save rules, not by a second Show-Tree-specific meaning.
-
-`%save` remains available when the builtin command itself is wanted explicitly. For `.showtree` without `--raw`, builtin save can still discover `to showtree` because that converter is installed in scope.
-
-## Explicit machine formats
-
-JSON and NUON remain ordinary explicit conversions:
-
-```nu
-show-tree D:/Tools -d 3 -l | to json | save tree.json
-show-tree D:/Tools -d 3 -l | to nuon | save tree.nuon
-```
-
-Once `to json`, `to nuon`, `table`, or another renderer consumes the native rows, the value is no longer a Show-Tree object and `save` behaves normally.
-
-Private lineage fields such as `parent_path` do not leak into the public table, JSON, or NUON row contract. The `.showtree` format is the deliberate exception because persistence needs enough hierarchy information to restore the tree identity later.
+Private lineage does not leak into those representations.
 
 ## `$ans.last`
 
-When `max_last_result_size` allows it, direct and transformed Show-Tree results participate in Nushell's normal last-result machinery:
+When `max_last_result_size` permits it, Show-Tree participates in Nushell's normal last-result behavior:
 
 ```nu
-show-tree D:/Tools -d 3 -l | where size > 10mb
+show-tree D:/Tools | where size > 10mb
 $ans.last
 ```
 
-Both render as the filtered tree. To inspect the last value as rows:
-
-```nu
-$ans.last | table
-```
-
-If repeated experimentation matters, capture the native value before running a renderer such as `table`:
-
-```nu
-let tree = $ans.last
-$tree | table
-$tree | where type == dir
-```
-
-## PowerShell
-
-PowerShell keeps its human-oriented contract:
-
-```powershell
-Show-Tree D:\Tools -MaxDepth 3
-```
-
-and piping the installed wrapper exposes plain tree lines on the success pipeline:
-
-```powershell
-Show-Tree D:\Tools -MaxDepth 3 | Set-Content tree.txt
-```
-
-No Show-Tree-specific output option is needed. `.showtree` persistence is a Nushell-native feature and does not add a parallel PowerShell file format API.
+Both render the filtered tree. Use `$ans.last | table` to inspect the flat rows explicitly.
 
 ## Options
 
@@ -263,161 +192,94 @@ No Show-Tree-specific output option is needed. `.showtree` persistence is a Nush
 | --- | --- | --- |
 | Starting paths | positional / `Path` | positional |
 | Dereference links for size metadata | `-Dereference`, `-r` | `--deref`, `-r` |
-| Include file rows | `-Long`, `-l` | `--long`, `-l` |
+| Legacy completeness switch | `-Long`, `-l` | `--long`, `-l` |
 | Exclude matching file paths | `-Exclude`, `-x` | `--exclude`, `-x` |
 | Maximum traversal depth | `-MaxDepth`, `-d` | `--max-depth`, `-d` |
 | Minimum included file size | `-MinSize`, `-m` | `--min-size`, `-m` |
-| Include dot-prefixed entries | `-All`, `-a` | `--all`, `-a` |
+| Legacy hidden-entry switch | `-All`, `-a` | `--all`, `-a` |
 | Hide folders with no included files | `-HideEmptyFolders`, `-e` | `--hide-empty-folders`, `-e` |
 | Help | `-Help`, `-h` | `--help`, `-h` |
 
-Examples:
-
-```nu
-show-tree
-show-tree D:/Projects -d 2
-show-tree D:/Projects -d 3 -l
-show-tree D:/Projects -m 10mb -e
-show-tree D:/Projects -x '*.tmp'
-show-tree D:/Projects -d 3 -l | save projects.showtree
-```
-
-```powershell
-Show-Tree
-Show-Tree D:\Projects -MaxDepth 2
-Show-Tree D:\Projects -Long -MinSize 10MB -HideEmptyFolders
-Show-Tree D:\Projects -Exclude "*.tmp"
-```
-
-## Filesystem semantics
-
-PowerShell and Nushell share the same traversal contract:
-
-- sizes are logical file bytes;
-- directory-entry metadata is not counted;
-- maximum depth limits traversal and therefore affects totals;
-- minimum size excludes files from visible output and totals;
-- directories are initially ordered before files, case-insensitively by name;
-- directory symbolic links are not recursively traversed;
-- `--hide-empty-folders` / `-HideEmptyFolders` is evaluated after active traversal filters;
-- filesystem roots render using their full path, so a Windows root such as `D:\` never becomes a blank label.
-
-The Nushell backend uses structured `du --long` data and normalizes it before producing public rows.
+`Long` and `All` are retained only for backwards compatibility. Files and hidden entries are included by default.
 
 ## Installation
 
-### Nushell
-
-Normal installation or update:
+Nushell:
 
 ```nu
 nu ./install-show-tree.nu
 ```
 
-Repair when the current `config.nu` cannot load:
+Repair a broken existing Show-Tree block without loading `config.nu`:
 
 ```nu
 nu --no-config-file ./install-show-tree.nu
 ```
 
-The generated Show-Tree block imports four concerns separately:
-
-```text
-show-tree.nu          traversal + native rows
-show-tree-display.nu  REPL display hook
-show-tree-format.nu   to showtree / from showtree
-show-tree-save.nu     user-facing save dispatch
-```
-
-Keeping those pieces separate means scripts may import the traversal module alone without silently changing global display, persistence, or save behavior.
-
-The installer replaces its marked block in place, validates the complete candidate `config.nu` with `nu-check`, backs up the previous config as `config.nu.show-tree.bak`, and refuses ambiguous markers instead of guessing.
-
-Open a **new Nushell session** after installation. An already-running parent Nu process keeps the command definitions it loaded earlier and cannot be hot-reloaded by a child installer.
-
-### PowerShell and both-shell installation
+PowerShell or both-shell installation:
 
 ```powershell
 .\Install-ShowTree.ps1
-```
-
-Shell-specific installation:
-
-```powershell
 .\Install-ShowTree.ps1 -PowerShellOnly
 .\Install-ShowTree.ps1 -NushellOnly
 ```
 
-## R3CLI dependency
+The installer validates vendored dependency hashes, replaces the marked profile/config block in place, validates candidate Nushell config with `nu-check`, creates a backup, and refuses ambiguous markers.
 
-Show-Tree vendors the exact PowerShell and Nushell R3CLI adapters it was tested against:
+Open a new Nushell session after installation. The parent Nu process that launched the installer cannot hot-reload command definitions already in memory.
 
-```text
-vendor/
-└── R3CLI/
-    ├── powershell/
-    └── nushell/
-```
+## Repository layout
 
-The pinned source revision, version, and SHA256 hashes live in `dependencies.json`. Maintainers update the vendored dependency explicitly from a clean R3CLI checkout:
-
-```console
-python scripts/update_r3cli.py <clean-R3CLI-checkout>
-```
-
-Python is required for that maintainer operation only.
-
-## Architecture
+Implementation code is kept out of the repository root:
 
 ```text
-show-tree.nu
-  traversal + normalization
-          │
-          ▼
-native rows + transient lineage metadata
-          │
-          ├──────── normal Nu pipeline ────────┐
-          │                                    │
-          ▼                                    ▼
-show-tree-display.nu                    show-tree-save.nu
-  REPL reconstruction                   ├── .showtree -> structured snapshot
-          │                             └── other name -> human tree text
-          ▼                                    │
-      R3CLI tree                               ▼
-                                         builtin %save
-
-show-tree-format.nu
-  ├── to showtree   -> versioned NUON envelope
-  └── from showtree -> validated rows + restored Show-Tree metadata
+Show-Tree/
+├── src/
+│   ├── nushell/
+│   │   ├── show-tree.nu
+│   │   ├── show-tree-display.nu
+│   │   ├── show-tree-format.nu
+│   │   └── show-tree-save.nu
+│   └── powershell/
+│       └── Show-Tree.ps1
+├── tests/
+├── scripts/
+├── docs/
+├── vendor/
+├── Install-ShowTree.ps1
+├── install-show-tree.nu
+├── dependencies.json
+└── README.md
 ```
 
-The `.showtree` envelope stores current rows plus only the effective path-parent relation required to reconstruct the persisted forest. It does not preserve removed rows as secret historical state.
+The root is reserved for user-facing installers, documentation and repository metadata. The installer points directly to `src/`.
+
+The Nushell implementation is intentionally split by concern:
+
+- `show-tree.nu`: traversal, normalization and native row contract;
+- `show-tree-display.nu`: REPL presentation and tree reconstruction;
+- `show-tree-format.nu`: `.showtree`, `to showtree`, `from showtree`;
+- `show-tree-save.nu`: tree-aware `save` dispatch.
+
+R3CLI remains vendored and SHA-verified under `vendor/R3CLI/`.
 
 ## Development
 
 CI targets Nushell 0.115.1 and Windows PowerShell integration. Coverage includes:
 
-- native flat output, direct child lists, and explicit serialization;
-- R3CLI rendering in a real pseudo-terminal REPL;
-- filtered reconstruction, orphan promotion, sorting, and `$ans.last`;
-- human tree saving for original and transformed results;
-- `.showtree` save/open round trips and explicit `to showtree` / `from showtree`;
-- filtered snapshot lineage and reopened-tree filtering;
-- `open --raw` and unsupported-schema rejection;
-- unrelated builtin-save delegation and explicit JSON workflows;
-- installed format/parser/save imports and installed `.showtree` reopening;
-- broken-install repair, config backup, and idempotent reinstall;
-- PowerShell pipeline-to-file output without ANSI escapes;
+- complete no-flag traversal with files, hidden entries and deep descendants;
+- explicit depth/filter behavior after the default change;
+- native flat output and direct child lists;
+- filtered reconstruction, orphan promotion, sorting and `$ans.last`;
+- human-tree saving;
+- `.showtree` save/open round trips and raw semantics;
+- real pseudo-terminal rendering of direct and reopened trees;
+- PowerShell default completeness and pipeline-to-file output;
+- installer repair, config backup and idempotence;
 - vendored R3CLI integrity rejection.
-
-Run the structured Nu test directly with:
-
-```nu
-nu tests/Nushell.Structured.nu
-```
 
 ## Requirements
 
-- Nushell 0.115+ for the Nushell command and `.showtree` format;
-- PowerShell 7 for the PowerShell command and shared installer;
+- Nushell 0.115+ for Nushell integration and `.showtree`;
+- PowerShell 7 for PowerShell integration and the shared installer;
 - Windows for profile installation and the legacy `tree.com` forwarding wrapper.

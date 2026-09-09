@@ -1,12 +1,10 @@
-# Show-Tree display and save integration for Nushell sessions.
+# Show-Tree display integration for Nushell sessions.
 #
-# `show-tree.nu` owns traversal and structured data. This module owns presentation:
-# representable Show-Tree values render as truthful R3CLI trees in the REPL, and an
-# unqualified `save` imported by the installer preserves that same tree view when a
-# Show-Tree value is written to a file. Other values delegate to Nushell's builtin
-# `%save` unchanged.
+# Traversal and structured data live in show-tree.nu. This module owns only the
+# interactive presentation policy: representable Show-Tree values render as a
+# truthful R3CLI tree rebuilt from the rows that actually remain.
 
-const R3CLI_MODULE = (path self vendor/R3CLI/nushell/r3cli)
+const R3CLI_MODULE = (path self ../../vendor/R3CLI/nushell/r3cli)
 use $R3CLI_MODULE
 
 
@@ -80,15 +78,10 @@ def nearest-visible-parent [
 }
 
 
-def tree-prefix [
-    ancestor_last: list<bool>
-    is_last: bool
-] {
+def tree-prefix [ancestor_last: list<bool>, is_last: bool] {
     let prefix = (
         $ancestor_last
-        | each {|ancestor_is_last|
-            if $ancestor_is_last { '    ' } else { '│   ' }
-        }
+        | each {|ancestor_is_last| if $ancestor_is_last { '    ' } else { '│   ' } }
         | str join ''
     )
 
@@ -96,15 +89,7 @@ def tree-prefix [
 }
 
 
-def render-row-line [
-    ui: record
-    row: record
-    prefix: string
-    root: bool
-] {
-    # A promoted orphan becomes a visual root after filtering. Showing its full
-    # path keeps that context explicit instead of pretending its omitted ancestors
-    # are still present.
+def render-row-line [ui: record, row: record, prefix: string, root: bool] {
     let label = if $root { $row.path } else { $row.name }
     let text = $prefix + ($label | into string)
     let size_text = (format-tree-size $row.size)
@@ -143,12 +128,7 @@ def render-visible-node [
 
     for item in ($children | enumerate) {
         let child_is_last = ($item.index == (($children | length) - 1))
-        let next_ancestors = if $root {
-            []
-        } else {
-            [...$ancestor_last $is_last]
-        }
-
+        let next_ancestors = if $root { [] } else { [...$ancestor_last $is_last] }
         render-visible-node $ui $rows $item.item $next_ancestors $child_is_last false
     }
 }
@@ -187,32 +167,21 @@ def render-tree-with-ui [value: any, lineage: list<any>, ui: record]: nothing ->
         if $item.index > 0 {
             r3cli line $ui
         }
-
         render-visible-node $ui $rows $item.item [] true true
     }
 
-    let total = (
-        $roots
-        | reduce --fold 0 {|row, acc| $acc + ($row.size | into int) }
-    )
-
+    let total = ($roots | reduce --fold 0 {|row, acc| $acc + ($row.size | into int) })
     r3cli line $ui
     r3cli key-value $ui 'Total size' (format-tree-size $total)
 }
 
 
-# Exported because Nushell may store `display_output` as source text. The source
-# hook is parsed later by the REPL, so it resolves these helpers through this
-# module's stable namespace rather than through lexical imports from config.nu.
 export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -> nothing {
     let ui = (r3cli console --colour auto)
     render-tree-with-ui $value $lineage $ui
 }
 
 
-# Render exactly the human tree into plain UTF-8 text. R3CLI's sink is used rather
-# than duplicating the renderer. The temporary file lets the sink closure stay
-# immutable while still collecting all emitted lines in Nushell.
 export def show-tree-render-text-internal [value: any, lineage: list<any>]: nothing -> string {
     let capture_path = ($nu.temp-dir | path join $'show-tree-render-((random uuid)).txt')
     '' | %save --force --raw $capture_path
@@ -239,10 +208,6 @@ export def show-tree-render-text-internal [value: any, lineage: list<any>]: noth
 }
 
 
-# A transformed value remains tree-renderable while it still carries Show-Tree
-# lineage metadata and keeps valid semantic fields for a unique set of original
-# nodes. Filters, take/drop, reverse and sort-by therefore stay visual trees;
-# malformed row rewrites and shape-changing commands fall back to normal Nu.
 export def show-tree-can-render-internal [meta: record, value: any]: nothing -> bool {
     if ((($meta | get --optional show_tree_result) | default false) != true) {
         return false
@@ -272,11 +237,9 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
     if not ($rows | all {|row| ($row.path | describe) == 'string' }) {
         return false
     }
-
     if not ($rows | all {|row| $row.type in [dir file] }) {
         return false
     }
-
     if not ($rows | all {|row| ($row.size | describe) =~ '^(filesize|int|float)' }) {
         return false
     }
@@ -288,35 +251,6 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
 
     let known_paths = ($lineage | get path)
     $paths | all {|path| $path in $known_paths }
-}
-
-
-# Shadow Nushell's save only at the user-facing name. `%save` remains the builtin
-# escape hatch and is what this wrapper delegates to for every non-Show-Tree value.
-# For a representable Show-Tree value, save writes the same human tree that the REPL
-# would display, including after row-preserving filters and sorts.
-export def save [
-    filename: path
-    --stderr (-e): path
-    --raw (-r)
-    --append (-a)
-    --force (-f)
-    --progress (-p)
-] {
-    metadata access {|meta|
-        let value = $in
-        let output = if (show-tree-can-render-internal $meta $value) {
-            show-tree-render-text-internal $value ($meta | get show_tree_render)
-        } else {
-            $value
-        }
-
-        if $stderr == null {
-            $output | %save $filename --raw=$raw --append=$append --force=$force --progress=$progress
-        } else {
-            $output | %save $filename --stderr=$stderr --raw=$raw --append=$append --force=$force --progress=$progress
-        }
-    }
 }
 
 
@@ -348,8 +282,6 @@ export-env {
             }
         }
 
-        # Prevent accidental double-wrapping when config.nu is sourced more than
-        # once in the same session.
         $env.SHOW_TREE_DISPLAY_HOOK_INSTALLED = true
     }
 }

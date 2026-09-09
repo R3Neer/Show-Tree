@@ -1,8 +1,8 @@
 use std/assert
 
-const SHOW_TREE = (path self ../show-tree.nu)
-const SHOW_TREE_FORMAT = (path self ../show-tree-format.nu)
-const SHOW_TREE_SAVE = (path self ../show-tree-save.nu)
+const SHOW_TREE = (path self ../src/nushell/show-tree.nu)
+const SHOW_TREE_FORMAT = (path self ../src/nushell/show-tree-format.nu)
+const SHOW_TREE_SAVE = (path self ../src/nushell/show-tree-save.nu)
 use $SHOW_TREE [main]
 use $SHOW_TREE_FORMAT ['to showtree' 'from showtree']
 use $SHOW_TREE_SAVE save
@@ -25,7 +25,7 @@ assert (($raw_open_error | str trim) != '') 'A raw .showtree payload was unexpec
 
 # `%save` bypasses the Show-Tree wrapper name, but builtin save should still discover
 # the globally imported `to showtree` serializer from the .showtree extension.
-let value = (show-tree $fixture --max-depth 1 --long)
+let value = (show-tree $fixture --max-depth 1)
 let builtin_path = ($fixture | path join 'builtin.showtree')
 $value | %save --force $builtin_path
 let builtin_raw = (open --raw $builtin_path)

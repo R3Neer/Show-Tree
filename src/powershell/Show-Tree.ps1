@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-Displays a size-aware filesystem tree.
+Displays a complete size-aware filesystem tree.
 
 .DESCRIPTION
-Displays one or more filesystem trees with logical sizes, optional file
-rendering, depth limiting, minimum-size filtering and empty-folder hiding.
+Displays one or more filesystem trees with logical sizes. With no filters it
+includes files, directories and hidden entries recursively without a depth limit.
 
 .PARAMETER Path
 Starting path or paths. Defaults to the current directory.
@@ -13,19 +13,19 @@ Starting path or paths. Defaults to the current directory.
 Uses target metadata when sizing symbolic links.
 
 .PARAMETER Long
-Includes files in the rendered tree.
+Compatibility switch. Files are already included by default.
 
 .PARAMETER Exclude
 Excludes matching file paths.
 
 .PARAMETER MaxDepth
-Limits directory recursion. Zero means the root only.
+Limits directory recursion. By default recursion is unbounded.
 
 .PARAMETER MinSize
 Excludes files smaller than this logical size.
 
 .PARAMETER All
-Includes dot-prefixed entries.
+Compatibility switch. Hidden entries are already included by default.
 
 .PARAMETER HideEmptyFolders
 Hides directories containing no included files.
@@ -65,45 +65,42 @@ param (
     [switch]$Help
 )
 
-$r3cliPath = Join-Path $PSScriptRoot 'vendor/R3CLI/powershell/R3CLI.psd1'
+$r3cliPath = Join-Path $PSScriptRoot '../../vendor/R3CLI/powershell/R3CLI.psd1'
 
 if (-not (Test-Path -LiteralPath $r3cliPath)) {
     throw "Vendored R3CLI PowerShell dependency was not found at '$r3cliPath'. Reinstall Show-Tree."
 }
 
 Import-Module $r3cliPath -ErrorAction Stop
-
 $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "0.1.2"
-        Description = "Displays a size-aware filesystem tree with depth, size and visibility filtering."
+        Version = "0.1.3"
+        Description = "Displays a complete size-aware filesystem tree by default, with optional filters."
         Invocation = "show-tree"
         Groups = @()
         Commands = @()
-        Usage = @(
-            "show-tree [path ...] [options]"
-        )
+        Usage = @("show-tree [path ...] [options]")
         GlobalItems = @(
             [PSCustomObject]@{ Label = "path"; Description = "Starting path(s). Defaults to the current directory." },
             [PSCustomObject]@{ Label = "-r, --deref / -Dereference"; Description = "Use target metadata for symbolic-link sizes." },
-            [PSCustomObject]@{ Label = "-l, --long / -Long"; Description = "Include files in the rendered tree." },
+            [PSCustomObject]@{ Label = "-l, --long / -Long"; Description = "Compatibility flag. Files are already included by default." },
             [PSCustomObject]@{ Label = "-x, --exclude / -Exclude"; Description = "Exclude matching file paths." },
-            [PSCustomObject]@{ Label = "-d, --max-depth / -MaxDepth"; Description = "Limit directory recursion. Zero means root only." },
+            [PSCustomObject]@{ Label = "-d, --max-depth / -MaxDepth"; Description = "Limit directory recursion. By default recursion is unbounded." },
             [PSCustomObject]@{ Label = "-m, --min-size / -MinSize"; Description = "Exclude files below this logical size." },
-            [PSCustomObject]@{ Label = "-a, --all / -All"; Description = "Include dot-prefixed entries." },
+            [PSCustomObject]@{ Label = "-a, --all / -All"; Description = "Compatibility flag. Hidden entries are already included by default." },
             [PSCustomObject]@{ Label = "-e, --hide-empty-folders / -HideEmptyFolders"; Description = "Hide directories with no included files." },
             [PSCustomObject]@{ Label = "-h, --help / -Help"; Description = "Show this help and skip traversal." }
         )
         Notes = @(
-            "Long controls rendering only; traversal still gathers files to calculate sizes and empty folders."
+            "With no filters, Show-Tree includes files, directories and hidden entries recursively without a depth limit."
         )
         Examples = @(
             "show-tree",
             "show-tree . -d 2",
-            "show-tree . -l -e"
+            "show-tree . -Exclude '*.tmp'"
         )
         HelpOptions = @("-h", "--help")
     }
@@ -114,25 +111,11 @@ function Format-TreeSize {
 
     $culture = [Globalization.CultureInfo]::InvariantCulture
 
-    if ($Bytes -ge 1TB) {
-        return "$(([double]$Bytes / 1TB).ToString('F2', $culture)) TiB"
-    }
-    if ($Bytes -ge 1GB) {
-        return "$(([double]$Bytes / 1GB).ToString('F2', $culture)) GiB"
-    }
-    if ($Bytes -ge 1MB) {
-        return "$(([double]$Bytes / 1MB).ToString('F2', $culture)) MiB"
-    }
-    if ($Bytes -ge 1KB) {
-        return "$(([double]$Bytes / 1KB).ToString('F2', $culture)) KiB"
-    }
-
+    if ($Bytes -ge 1TB) { return "$(([double]$Bytes / 1TB).ToString('F2', $culture)) TiB" }
+    if ($Bytes -ge 1GB) { return "$(([double]$Bytes / 1GB).ToString('F2', $culture)) GiB" }
+    if ($Bytes -ge 1MB) { return "$(([double]$Bytes / 1MB).ToString('F2', $culture)) MiB" }
+    if ($Bytes -ge 1KB) { return "$(([double]$Bytes / 1KB).ToString('F2', $culture)) KiB" }
     return "$Bytes B"
-}
-
-function Test-IsDotHidden {
-    param ([string]$Name)
-    return $Name.StartsWith(".")
 }
 
 function Test-IsLink {
@@ -159,10 +142,7 @@ function Get-LogicalFileSize {
     }
 
     if (-not $Dereference) {
-        if (
-            $null -ne $Item.PSObject.Properties["Length"] -and
-            $null -ne $Item.Length
-        ) {
+        if ($null -ne $Item.PSObject.Properties["Length"] -and $null -ne $Item.Length) {
             return [long]$Item.Length
         }
         return 0L
@@ -191,10 +171,7 @@ function Test-Excluded {
     }
 
     $fullName = $Item.FullName.Replace("\", "/")
-    return (
-        $Pattern.IsMatch($Item.Name) -or
-        $Pattern.IsMatch($fullName)
-    )
+    return ($Pattern.IsMatch($Item.Name) -or $Pattern.IsMatch($fullName))
 }
 
 function Get-FolderNode {
@@ -203,7 +180,6 @@ function Get-FolderNode {
         [Nullable[int]]$MaxDepth,
         [Nullable[long]]$MinSize,
         [System.Management.Automation.WildcardPattern]$ExcludePattern,
-        [switch]$All,
         [switch]$Dereference,
         [int]$DepthLevel = 0
     )
@@ -212,24 +188,13 @@ function Get-FolderNode {
     $totalSize = 0L
     $hasFiles = $false
 
-    $items = @(
-        Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    )
+    $items = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
 
     foreach ($item in $items) {
-        if (-not $All -and (Test-IsDotHidden $item.Name)) {
-            continue
-        }
-
         $isLink = Test-IsLink $item
 
-        # Directory links are sized as link entries and are never traversed.
         if ($item.PSIsContainer -and -not $isLink) {
-            $canDescend = (
-                $null -eq $MaxDepth -or
-                $DepthLevel -lt $MaxDepth
-            )
-
+            $canDescend = ($null -eq $MaxDepth -or $DepthLevel -lt $MaxDepth)
             if (-not $canDescend) {
                 continue
             }
@@ -239,16 +204,11 @@ function Get-FolderNode {
                 -MaxDepth $MaxDepth `
                 -MinSize $MinSize `
                 -ExcludePattern $ExcludePattern `
-                -All:$All `
                 -Dereference:$Dereference `
                 -DepthLevel ($DepthLevel + 1)
 
             $totalSize += $childFolder.SizeBytes
-
-            if ($childFolder.HasFiles) {
-                $hasFiles = $true
-            }
-
+            if ($childFolder.HasFiles) { $hasFiles = $true }
             [void]$children.Add($childFolder)
             continue
         }
@@ -258,7 +218,6 @@ function Get-FolderNode {
         }
 
         $size = Get-LogicalFileSize -Item $item -Dereference:$Dereference
-
         if ($null -ne $MinSize -and $size -lt $MinSize) {
             continue
         }
@@ -302,7 +261,6 @@ function Get-RootNodes {
         [Nullable[int]]$MaxDepth,
         [Nullable[long]]$MinSize,
         [System.Management.Automation.WildcardPattern]$ExcludePattern,
-        [switch]$All,
         [switch]$Dereference
     )
 
@@ -313,27 +271,17 @@ function Get-RootNodes {
 
         if ($isPattern) {
             $resolvedPaths = @(Resolve-Path -Path $rawPath -ErrorAction SilentlyContinue)
-        }
-        else {
+        } else {
             try {
                 $resolvedPaths = @(Resolve-Path -LiteralPath $rawPath -ErrorAction Stop)
             }
             catch {
-                throw (
-                    Format-R3Diagnostic `
-                        -Message "Path '$rawPath' was not found" `
-                        -Code "ShowTree.Path.NotFound"
-                )
+                throw (Format-R3Diagnostic -Message "Path '$rawPath' was not found" -Code "ShowTree.Path.NotFound")
             }
         }
 
         foreach ($resolvedPath in $resolvedPaths) {
             $item = Get-Item -LiteralPath $resolvedPath.ProviderPath -Force -ErrorAction Stop
-
-            if ($isPattern -and -not $All -and (Test-IsDotHidden $item.Name)) {
-                continue
-            }
-
             $isLink = Test-IsLink $item
 
             if ($item.PSIsContainer -and -not $isLink) {
@@ -342,14 +290,20 @@ function Get-RootNodes {
                         -Path $item.FullName `
                         -MaxDepth $MaxDepth `
                         -MinSize $MinSize `
-                        -ExcludePattern $excludePattern `
-                        -All:$All `
+                        -ExcludePattern $ExcludePattern `
                         -Dereference:$Dereference)
                 )
                 continue
             }
 
+            if (Test-Excluded $item $ExcludePattern) {
+                continue
+            }
+
             $size = Get-LogicalFileSize -Item $item -Dereference:$Dereference
+            if ($null -ne $MinSize -and $size -lt $MinSize) {
+                continue
+            }
 
             [void]$roots.Add(
                 [PSCustomObject]@{
@@ -364,31 +318,20 @@ function Get-RootNodes {
         }
     }
 
-    return @(
-        $roots |
-            Sort-Object @{ Expression = { $_.FullName.ToLowerInvariant() } }
-    )
+    return @($roots | Sort-Object @{ Expression = { $_.FullName.ToLowerInvariant() } })
 }
 
 function Get-VisibleChildren {
     param (
         $Node,
-        [switch]$Long,
         [switch]$HideEmptyFolders
     )
 
     foreach ($child in $Node.Children) {
-        if ($child.Kind -eq "Folder") {
-            if ($HideEmptyFolders -and -not $child.HasFiles) {
-                continue
-            }
-            $child
+        if ($child.Kind -eq "Folder" -and $HideEmptyFolders -and -not $child.HasFiles) {
             continue
         }
-
-        if ($Long) {
-            $child
-        }
+        $child
     }
 }
 
@@ -399,11 +342,9 @@ function Get-TreePrefix {
     )
 
     $prefix = ""
-
     foreach ($ancestorIsLast in $AncestorLast) {
         $prefix += if ($ancestorIsLast) { "    " } else { "│   " }
     }
-
     $prefix += if ($IsLast) { "└── " } else { "├── " }
     return $prefix
 }
@@ -440,31 +381,22 @@ function Write-TreeChildren {
     param (
         $Console,
         $Node,
-        [switch]$Long,
         [switch]$HideEmptyFolders,
         [bool[]]$AncestorLast = @()
     )
 
-    $children = @(
-        Get-VisibleChildren `
-            -Node $Node `
-            -Long:$Long `
-            -HideEmptyFolders:$HideEmptyFolders
-    )
+    $children = @(Get-VisibleChildren -Node $Node -HideEmptyFolders:$HideEmptyFolders)
 
     for ($i = 0; $i -lt $children.Count; $i++) {
         $child = $children[$i]
         $isLast = $i -eq ($children.Count - 1)
-
         $prefix = Get-TreePrefix -AncestorLast $AncestorLast -IsLast $isLast
-
         Write-TreeNodeLine -Console $Console -Node $child -Prefix $prefix
 
         if ($child.Kind -eq "Folder") {
             Write-TreeChildren `
                 -Console $Console `
                 -Node $child `
-                -Long:$Long `
                 -HideEmptyFolders:$HideEmptyFolders `
                 -AncestorLast @($AncestorLast + $isLast)
         }
@@ -477,38 +409,30 @@ if ($Help) {
 }
 
 if ($null -ne $MaxDepth -and $MaxDepth -lt 0) {
-    throw (
-        Format-R3Diagnostic `
-            -Message "MaxDepth cannot be negative" `
-            -Code "ShowTree.MaxDepth.Invalid"
-    )
+    throw (Format-R3Diagnostic -Message "MaxDepth cannot be negative" -Code "ShowTree.MaxDepth.Invalid")
 }
 
 if ($null -ne $MinSize -and $MinSize -lt 0) {
-    throw (
-        Format-R3Diagnostic `
-            -Message "MinSize cannot be negative" `
-            -Code "ShowTree.MinSize.Invalid"
-    )
+    throw (Format-R3Diagnostic -Message "MinSize cannot be negative" -Code "ShowTree.MinSize.Invalid")
 }
 
 $excludePattern = if ([string]::IsNullOrWhiteSpace($Exclude)) {
     $null
-}
-else {
+} else {
     [System.Management.Automation.WildcardPattern]::new(
         $Exclude.Replace("\", "/"),
         [System.Management.Automation.WildcardOptions]::IgnoreCase
     )
 }
 
+# -Long and -All remain accepted for backwards compatibility. Since 0.1.3 their
+# historical behavior is simply the default complete tree.
 $roots = @(
     Get-RootNodes `
         -Paths $Path `
         -MaxDepth $MaxDepth `
         -MinSize $MinSize `
         -ExcludePattern $excludePattern `
-        -All:$All `
         -Dereference:$Dereference
 )
 
@@ -532,12 +456,10 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
         Write-TreeChildren `
             -Console $ui `
             -Node $root `
-            -Long:$Long `
             -HideEmptyFolders:$HideEmptyFolders
     }
 }
 
 $grandTotal = ($roots | Measure-Object -Property SizeBytes -Sum).Sum
-
 Write-R3Line $ui
 Write-R3KeyValue $ui "Total size" (Format-TreeSize ([long]$grandTotal))

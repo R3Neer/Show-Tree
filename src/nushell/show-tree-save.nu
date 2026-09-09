@@ -50,17 +50,11 @@ export def save [
 
         if $is_showtree_file {
             if $raw {
-                # Preserve Nushell's native --raw meaning: bypass the custom
-                # extension serializer and hand the original value to builtin save.
                 save-builtin $value $filename $stderr true $append $force $progress
             } else if $stderr != null {
-                # Builtin save only permits --stderr together with --raw. Do not
-                # accidentally make an invalid invocation valid by serializing first.
                 save-builtin $value $filename $stderr false $append $force $progress
             } else {
                 let serialized = (showtree-serialize-internal $value)
-                # The serializer has produced the complete UTF-8 file text. Write it
-                # raw so the .showtree extension cannot trigger a second format pass.
                 save-builtin $serialized $filename null true $append $force $progress
             }
             return
