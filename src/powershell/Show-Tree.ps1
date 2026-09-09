@@ -78,7 +78,7 @@ $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "0.1.4"
+        Version = "0.1.5"
         Description = "Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters."
         Invocation = "show-tree"
         Groups = @()
@@ -401,9 +401,9 @@ function Write-TreeNodeLine {
 
     if ($Node.Kind -eq "Folder") {
         Write-R3Line $Console @(
-            @{ Text = $Prefix; Role = "secondary" },
+            @{ Text = ($Prefix + "📁 "); Role = "secondary" },
             @{ Text = $label; Role = "heading"; Bold = $true },
-            @{ Text = " [Folder] "; Role = "secondary" },
+            @{ Text = " "; Role = "secondary" },
             @{ Text = "($sizeText)"; Role = "value" }
         )
         return
