@@ -44,17 +44,19 @@ show-tree D:/Tools -d 2 | table
 ```
 
 ```text
-╭───┬──────────────┬──────┬──────────┬─────────────────────────╮
-│ # │     name     │ type │   size   │          path           │
-├───┼──────────────┼──────┼──────────┼─────────────────────────┤
-│ 0 │ Tools        │ dir  │ ...      │ D:\Tools                │
-│ 1 │ ModpackTools │ dir  │ ...      │ D:\Tools\ModpackTools   │
-│ 2 │ R3CLI        │ dir  │ ...      │ D:\Tools\R3CLI          │
-│ 3 │ Show-Tree    │ dir  │ ...      │ D:\Tools\Show-Tree      │
-╰───┴──────────────┴──────┴──────────┴─────────────────────────╯
+╭───┬─────────────────────────┬──────┬──────────╮
+│ # │          path           │ type │   size   │
+├───┼─────────────────────────┼──────┼──────────┤
+│ 0 │ D:\Tools                │ dir  │ ...      │
+│ 1 │ D:\Tools\ModpackTools   │ dir  │ ...      │
+│ 2 │ D:\Tools\R3CLI          │ dir  │ ...      │
+│ 3 │ D:\Tools\Show-Tree      │ dir  │ ...      │
+╰───┴─────────────────────────┴──────┴──────────╯
 ```
 
-That means ordinary Nu operations work without a JSON flag or text parsing:
+The three-column contract is intentional. `path` already contains the basename, so duplicating it as a separate `name` column made ordinary 80-column terminal tables drop useful fields. The narrower shape keeps path, type and size visible together instead of turning the table into a tiny bureaucratic casualty.
+
+Ordinary Nu operations work without a JSON flag or text parsing:
 
 ```nu
 show-tree D:/Tools -d 2
@@ -63,7 +65,10 @@ show-tree D:/Tools -d 2
 
 show-tree D:/Tools -d 3 -l
 | where size > 10mb
-| select name size path
+| select path size
+
+show-tree D:/Tools -d 3
+| each {|row| $row | insert name ($row.path | path basename) }
 
 show-tree D:/Tools -d 3
 | to json
@@ -94,7 +99,7 @@ $tree | table
 $tree | where type == dir
 ```
 
-This matters because `table` itself produces rendered text. After running `$ans.last | table`, Nushell may make that rendered result the new last result. Saving the native value to a variable avoids that normal REPL behaviour.
+This matters because `table` itself produces rendered text. After running `$ans.last | table`, Nushell may make that rendered text the new last result. Saving the native value to a variable avoids that normal REPL behaviour.
 
 If a marked Show-Tree value is filtered, sorted, selected or otherwise changed, the display integration does **not** redraw a stale hierarchy. The transformed value falls back to Nushell's normal display path.
 
@@ -104,16 +109,22 @@ The public result is deliberately flat and compact:
 
 ```nu
 {
-    name: string
+    path: string
     type: 'dir' | 'file'
     size: filesize
-    path: string
 }
 ```
 
 One visible filesystem node equals one row. There are no nested `children` tables to collapse into placeholders such as `[table 36 rows]`.
 
-The branch glyphs and depth information required for the interactive R3CLI tree are presentation metadata, not public columns. They are therefore absent from `table`, JSON, NUON and other machine-readable output.
+Hierarchy glyphs, depth and display labels required for the interactive R3CLI tree are presentation metadata, not public columns. They are therefore absent from `table`, JSON, NUON and other machine-readable output.
+
+When a basename is needed, derive it with Nushell's path commands instead of storing duplicate data:
+
+```nu
+show-tree D:/Tools -d 2
+| each {|row| $row | insert name ($row.path | path basename) }
+```
 
 Without `--long`, file rows are omitted from the returned table, but file sizes still contribute to directory totals.
 
@@ -150,7 +161,7 @@ Show-Tree D:\Projects -Exclude "*.tmp"
 
 ## Filesystem semantics
 
-PowerShell and Nushell share the same user-facing contract:
+PowerShell and Nushell share the same user-facing traversal contract:
 
 - sizes are logical file bytes;
 - directory-entry metadata is not counted;
@@ -159,7 +170,7 @@ PowerShell and Nushell share the same user-facing contract:
 - directories are ordered before files, case-insensitively by name;
 - directory symbolic links are not recursively traversed;
 - `--hide-empty-folders` / `-HideEmptyFolders` is evaluated after the active filters;
-- Windows filesystem roots receive a meaningful root name instead of an empty basename.
+- filesystem roots render using their full path, so a Windows root such as `D:\` never appears as a blank label.
 
 The Nushell backend uses structured `du --long` data and normalizes it before producing the public rows.
 
@@ -233,7 +244,7 @@ show-tree.nu
           │
           ├── redirected/captured ──> normal Nu pipeline
           │
-          └── direct REPL result ───> metadata marker
+          └── direct REPL result ───> render metadata
                                         │
                                         ▼
 show-tree-display.nu ───────────────> R3CLI tree
@@ -248,7 +259,7 @@ Keeping display integration outside the main Nu module means scripts can import 
 CI targets Nushell 0.115.1 and Windows PowerShell integration. The suite covers:
 
 - native flat output and serialization;
-- explicit `table` readability;
+- explicit `table` readability at ordinary terminal widths;
 - direct R3CLI rendering in a real pseudo-terminal REPL;
 - `$ans.last` redisplay;
 - preservation of the normal Nushell display hook;
@@ -268,7 +279,3 @@ nu tests/Nushell.Structured.nu
 - Nushell 0.115+ for the Nushell command;
 - PowerShell 7 for the PowerShell command and shared installer;
 - Windows for profile installation and the legacy `tree.com` forwarding wrapper.
-
-## Licence
-
-MIT. See [`LICENSE`](LICENSE) if present in the distribution.
