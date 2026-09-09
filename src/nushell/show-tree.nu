@@ -3,7 +3,7 @@ use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '0.1.4'
+    version: '0.1.5'
     description: 'Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters.'
     invocation: 'show-tree'
     groups: []
@@ -96,24 +96,11 @@ def run-du [
     %du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth --min-size $min_bytes
 }
 
-
-def visibility-key [name: string]: nothing -> string {
-    $name | url encode --all
-}
-
-
-def visibility-index-has [index: record, name: string]: nothing -> bool {
-    let key = (visibility-key $name)
-    not ((($index | get --optional $key) | default []) | is-empty)
-}
-
-
 # Nushell's platform-native `ls` knows about the Windows Hidden file attribute,
-# while a dot-prefix check alone does not. On Windows, enumerate each directory
-# once and group visible names into a hash-like record. The old list membership
-# check was linear for every child, making a wide directory quadratic in its
-# number of entries even though the filesystem itself had already been scanned.
-def platform-visible-child-index [directory: string, all: bool] {
+# while a dot-prefix check alone does not. On Windows, use its visible-name set as
+# an additional filter when --all is absent. Unix visibility remains the normal
+# dot-prefix rule without an extra directory enumeration.
+def platform-visible-child-names [directory: string, all: bool] {
     if $all or $nu.os-info.name != 'windows' {
         return null
     }
@@ -121,19 +108,13 @@ def platform-visible-child-index [directory: string, all: bool] {
     try {
         %ls --full-paths $directory
         | get name
-        | each {|path|
-            {
-                _show_tree_visibility_key: (visibility-key ($path | path basename))
-            }
-        }
-        | group-by _show_tree_visibility_key
+        | each {|name| $name | path basename }
     } catch {
-        {}
+        []
     }
 }
 
-
-def child-is-visible [child: record, all: bool, platform_visible_index: any] {
+def child-is-visible [child: record, all: bool, platform_visible_names: any] {
     if $all {
         return true
     }
@@ -143,13 +124,12 @@ def child-is-visible [child: record, all: bool, platform_visible_index: any] {
         return false
     }
 
-    if $platform_visible_index == null {
+    if $platform_visible_names == null {
         return true
     }
 
-    visibility-index-has $platform_visible_index $name
+    $name in $platform_visible_names
 }
-
 
 def normalize-du-node [entry: record, all: bool] {
     let full_path = ($entry.path | path expand)
@@ -166,18 +146,18 @@ def normalize-du-node [entry: record, all: bool] {
         }
     }
 
-    let platform_visible_index = (platform-visible-child-index $full_path $all)
+    let platform_visible_names = (platform-visible-child-names $full_path $all)
 
     let directories = (
         ($entry | get --optional directories | default [])
-        | where {|child| child-is-visible $child $all $platform_visible_index }
+        | where {|child| child-is-visible $child $all $platform_visible_names }
         | each {|child| normalize-du-node $child $all }
         | sort-by name --ignore-case
     )
 
     let files = (
         ($entry | get --optional files | default [])
-        | where {|child| child-is-visible $child $all $platform_visible_index }
+        | where {|child| child-is-visible $child $all $platform_visible_names }
         | each {|child| normalize-du-node $child $all }
         | sort-by name --ignore-case
     )
