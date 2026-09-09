@@ -44,17 +44,17 @@ show-tree D:/Tools -d 2 | table
 ```
 
 ```text
-╭───┬─────────────────────────┬──────┬──────────╮
-│ # │          path           │ type │   size   │
-├───┼─────────────────────────┼──────┼──────────┤
-│ 0 │ D:\Tools                │ dir  │ ...      │
-│ 1 │ D:\Tools\ModpackTools   │ dir  │ ...      │
-│ 2 │ D:\Tools\R3CLI          │ dir  │ ...      │
-│ 3 │ D:\Tools\Show-Tree      │ dir  │ ...      │
-╰───┴─────────────────────────┴──────┴──────────╯
+╭───┬──────────────┬──────┬──────────┬─────────────────────────╮
+│ # │     name     │ type │   size   │          path           │
+├───┼──────────────┼──────┼──────────┼─────────────────────────┤
+│ 0 │ Tools        │ dir  │ ...      │ D:\Tools                │
+│ 1 │ ModpackTools │ dir  │ ...      │ D:\Tools\ModpackTools   │
+│ 2 │ R3CLI        │ dir  │ ...      │ D:\Tools\R3CLI          │
+│ 3 │ Show-Tree    │ dir  │ ...      │ D:\Tools\Show-Tree      │
+╰───┴──────────────┴──────┴──────────┴─────────────────────────╯
 ```
 
-The three-column contract is intentional. `path` already contains the basename, so duplicating it as a separate `name` column made ordinary 80-column terminal tables drop useful fields. The narrower shape keeps path, type and size visible together instead of turning the table into a tiny bureaucratic casualty.
+The rows are flat, so the table shows actual filesystem entries instead of one root row containing a mysterious `[table 36 rows]` cell. Nushell may still trim very long paths when the terminal itself is narrow, which is ordinary `table` behaviour rather than Show-Tree hiding descendants.
 
 Ordinary Nu operations work without a JSON flag or text parsing:
 
@@ -65,10 +65,7 @@ show-tree D:/Tools -d 2
 
 show-tree D:/Tools -d 3 -l
 | where size > 10mb
-| select path size
-
-show-tree D:/Tools -d 3
-| each {|row| $row | insert name ($row.path | path basename) }
+| select name size path
 
 show-tree D:/Tools -d 3
 | to json
@@ -105,26 +102,22 @@ If a marked Show-Tree value is filtered, sorted, selected or otherwise changed, 
 
 ## Nushell data contract
 
-The public result is deliberately flat and compact:
+The public result is deliberately flat:
 
 ```nu
 {
-    path: string
+    name: string
     type: 'dir' | 'file'
     size: filesize
+    path: string
 }
 ```
 
 One visible filesystem node equals one row. There are no nested `children` tables to collapse into placeholders such as `[table 36 rows]`.
 
-Hierarchy glyphs, depth and display labels required for the interactive R3CLI tree are presentation metadata, not public columns. They are therefore absent from `table`, JSON, NUON and other machine-readable output.
+The branch glyphs and depth information required for the interactive R3CLI tree are presentation metadata, not public columns. They are therefore absent from `table`, JSON, NUON and other machine-readable output.
 
-When a basename is needed, derive it with Nushell's path commands instead of storing duplicate data:
-
-```nu
-show-tree D:/Tools -d 2
-| each {|row| $row | insert name ($row.path | path basename) }
-```
+`name` is kept alongside the full path because it is the natural field for filtering and selection in Nu, while `path` stays available for filesystem actions. A root whose basename would otherwise be empty uses the full root path as its display name.
 
 Without `--long`, file rows are omitted from the returned table, but file sizes still contribute to directory totals.
 
@@ -259,7 +252,7 @@ Keeping display integration outside the main Nu module means scripts can import 
 CI targets Nushell 0.115.1 and Windows PowerShell integration. The suite covers:
 
 - native flat output and serialization;
-- explicit `table` readability at ordinary terminal widths;
+- explicit `table` readability for ordinary paths;
 - direct R3CLI rendering in a real pseudo-terminal REPL;
 - `$ans.last` redisplay;
 - preservation of the normal Nushell display hook;
