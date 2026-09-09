@@ -27,15 +27,20 @@ jobs:
         run: |
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-display.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-format.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-save.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check Show-Tree/install-show-tree.nu | if not $in { exit 1 }'
 
-      - name: Test native pipeline output
+      - name: Test native pipeline output and showtree persistence
         run: nu Show-Tree/tests/Nushell.Structured.nu
+
+      - name: Test raw and builtin showtree save contract
+        run: nu Show-Tree/tests/Nushell.ShowtreeRaw.nu
 
       - name: Test direct rendering path
         run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
 
-      - name: Test direct REPL result through ans
+      - name: Test direct REPL result, ans and showtree reopening
         run: |
           python -m pip install pexpect
           python Show-Tree/tests/test_repl.py
@@ -88,7 +93,7 @@ jobs:
         shell: pwsh
         run: nu --no-config-file ./Show-Tree/install-show-tree.nu
 
-      - name: Validate repaired config, backup and Nushell command
+      - name: Validate repaired config, persistence, backup and Nushell command
         shell: pwsh
         run: |
           $nuConfig = (& nu --no-config-file -c 'print --no-newline $nu.config-path' | Out-String).Trim()
@@ -97,7 +102,11 @@ jobs:
           if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Expected one Show-Tree end marker.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_BEFORE') -gt $text.IndexOf('# >>> Show-Tree >>>')) { throw 'Installer moved the Show-Tree block ahead of preceding config.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_AFTER') -lt $text.IndexOf('# <<< Show-Tree <<<')) { throw 'Installer moved the Show-Tree block behind following config.' }
-          if ($text -notmatch "show-tree-display\.nu' save") { throw 'Installer did not import the tree-aware save wrapper.' }
+          if ($text -notmatch 'show-tree-format\.nu') { throw 'Installer did not import the .showtree format module.' }
+          if ($text -notmatch "'to showtree'") { throw 'Installer did not import to showtree.' }
+          if ($text -notmatch "'from showtree'") { throw 'Installer did not import from showtree.' }
+          if ($text -notmatch "show-tree-save\.nu' save") { throw 'Installer did not import the tree-aware save wrapper.' }
+          if ($text -match "show-tree-display\.nu' save") { throw 'Installer still imports the legacy display-module save wrapper.' }
 
           $backup = $nuConfig + '.show-tree.bak'
           if (-not (Test-Path -LiteralPath $backup)) { throw 'Nushell config backup was not created.' }
@@ -108,12 +117,25 @@ jobs:
               error make { msg: 'surrounding config did not load' }
           }
           show-tree Show-Tree -d 0 | get 0.type | print
-          let saved = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
-          show-tree Show-Tree -d 1 | save --force $saved
-          let saved_text = (open --raw $saved | ansi strip)
-          if not ($saved_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the tree' } }
-          if not ($saved_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
-          rm --force $saved
+
+          let human = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
+          show-tree Show-Tree -d 1 | save --force $human
+          let human_text = (open --raw $human | ansi strip)
+          if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
+          if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
+
+          let snapshot = ($nu.temp-dir | path join 'show-tree-installed.showtree')
+          show-tree Show-Tree -d 1 -l | save --force $snapshot
+          let raw_snapshot = (open --raw $snapshot)
+          if not ($raw_snapshot | str contains 'schema_version') { error make { msg: 'installed .showtree snapshot is not versioned' } }
+          if not ($raw_snapshot | str contains 'lineage') { error make { msg: 'installed .showtree snapshot lost lineage' } }
+          let snapshot_meta = (open $snapshot | metadata)
+          if (($snapshot_meta.show_tree_result? | default false) != true) { error make { msg: 'open .showtree did not restore Show-Tree metadata' } }
+          if (($snapshot_meta.show_tree_render? | default [] | is-empty)) { error make { msg: 'open .showtree did not restore lineage metadata' } }
+          open $snapshot | get 0.type | print
+
+          rm --force $human
+          rm --force $snapshot
           '@
           nu --config $nuConfig -c $validationCode
 
@@ -144,4 +166,6 @@ jobs:
           $text = Get-Content -LiteralPath $nuConfig -Raw
           if (($text | Select-String -Pattern '# >>> Show-Tree >>>' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated the Show-Tree start marker.' }
           if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated the Show-Tree end marker.' }
+          if (($text | Select-String -Pattern 'show-tree-format\.nu' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated or removed the showtree format import.' }
+          if (($text | Select-String -Pattern 'show-tree-save\.nu' -AllMatches).Matches.Count -ne 1) { throw 'Reinstall duplicated or removed the save wrapper import.' }
           nu --config $nuConfig -c 'show-tree Show-Tree -d 0 | get 0.type | print'

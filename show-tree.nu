@@ -3,7 +3,7 @@ use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '0.1.1'
+    version: '0.1.2'
     description: 'Displays a size-aware filesystem tree with depth, size and visibility filtering.'
     invocation: 'show-tree'
     groups: []
@@ -26,7 +26,9 @@ const HELP_CATALOGUE = {
         'Nushell output is one flat native row per visible node: name, type, size, children and path.'
         'children is a flat list of direct child names, never nested child records.'
         'Representable filtered, sorted and sliced results keep the R3CLI tree as their automatic REPL view.'
-        'The installed save wrapper writes that same tree view for Show-Tree values; %save bypasses the wrapper.'
+        'Saving to .showtree persists native rows and hierarchy; opening that file restores the Show-Tree view and data.'
+        'Saving to other filenames writes the human tree; %save bypasses the Show-Tree save wrapper.'
+        'Use to showtree / from showtree for explicit persistence conversion without relying on a filename extension.'
         'Pipe explicitly to table, to json or another renderer when you want that representation instead.'
         'Long controls file-row visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
@@ -36,6 +38,8 @@ const HELP_CATALOGUE = {
         'show-tree . -l -e'
         'show-tree . -d 2 | where size > 1mb'
         'show-tree . -d 2 | save tree.txt'
+        'show-tree . -d 2 -l | save snapshot.showtree'
+        'open snapshot.showtree | where size > 1mb'
         'show-tree . -d 2 | table'
         'show-tree . -d 2 | to json'
     ]
