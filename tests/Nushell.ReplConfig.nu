@@ -8,10 +8,10 @@ $env.PROMPT_INDICATOR_VI_INSERT = {|| '' }
 $env.PROMPT_INDICATOR_VI_NORMAL = {|| '' }
 $env.PROMPT_MULTILINE_INDICATOR = {|| '::: ' }
 
-const SHOW_TREE = (path self ../show-tree.nu)
-const SHOW_TREE_DISPLAY = (path self ../show-tree-display.nu)
-const SHOW_TREE_FORMAT = (path self ../show-tree-format.nu)
-const SHOW_TREE_SAVE = (path self ../show-tree-save.nu)
+const SHOW_TREE = (path self ../src/nushell/show-tree.nu)
+const SHOW_TREE_DISPLAY = (path self ../src/nushell/show-tree-display.nu)
+const SHOW_TREE_FORMAT = (path self ../src/nushell/show-tree-format.nu)
+const SHOW_TREE_SAVE = (path self ../src/nushell/show-tree-save.nu)
 use $SHOW_TREE [main]
 use $SHOW_TREE_DISPLAY
 use $SHOW_TREE_FORMAT ['to showtree' 'from showtree']
