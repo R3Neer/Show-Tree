@@ -31,20 +31,23 @@ def read_to_prompt(child: pexpect.spawn) -> str:
 
 
 def submit(child: pexpect.spawn, command: str) -> None:
-    """Submit one line as a terminal Enter key, not as a Unix LF.
-
-    Reedline runs the terminal in raw mode. A real Enter key arrives as carriage
-    return; pexpect.sendline() sends LF on Linux, which can leave the command sitting
-    in the editor without executing it. That made earlier UI tests diagnose a
-    display-hook timeout when the REPL had simply never received Enter. Delightful.
-    """
+    """Submit one line as a terminal Enter key, not as a Unix LF."""
     child.send(command)
     child.send("\r")
 
 
 def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
-    """Execute one REPL line and collect everything after an execution marker."""
-    submit(child, f"print '{marker}'; {command}")
+    """Execute one REPL line and collect everything after an execution marker.
+
+    Reedline redraws every typed character, so the complete marker must not occur
+    literally in the submitted source. Split it into two string literals and only
+    join it at execution time; then pexpect can distinguish command execution from
+    an editor repaint.
+    """
+    midpoint = len(marker) // 2
+    left = marker[:midpoint]
+    right = marker[midpoint:]
+    submit(child, f"print ('{left}' + '{right}'); {command}")
     output = expect_while_answering_cpr(child, marker)
     output += read_to_prompt(child)
     return output
