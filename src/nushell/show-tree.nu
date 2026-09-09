@@ -272,6 +272,7 @@ export def main [
     let roots = (
         $raw
         | each {|entry| normalize-du-node $entry $all }
+        | where {|root| not ($short and $root.kind == 'File') }
         | sort-by full_name --ignore-case
     )
 
