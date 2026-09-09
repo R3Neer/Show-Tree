@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-Displays a complete size-aware filesystem tree.
+Displays a recursive size-aware filesystem tree.
 
 .DESCRIPTION
-Displays one or more filesystem trees with logical sizes. With no filters it
-includes files, directories and hidden entries recursively without a depth limit.
+Displays one or more filesystem trees with logical sizes. Files and directories
+are shown recursively without a depth limit by default. Hidden entries are omitted
+unless -All is supplied.
 
 .PARAMETER Path
 Starting path or paths. Defaults to the current directory.
@@ -12,8 +13,8 @@ Starting path or paths. Defaults to the current directory.
 .PARAMETER Dereference
 Uses target metadata when sizing symbolic links.
 
-.PARAMETER Long
-Compatibility switch. Files are already included by default.
+.PARAMETER Short
+Shows directories only. Directory sizes still include visible files.
 
 .PARAMETER Exclude
 Excludes matching file paths.
@@ -25,7 +26,7 @@ Limits directory recursion. By default recursion is unbounded.
 Excludes files smaller than this logical size.
 
 .PARAMETER All
-Compatibility switch. Hidden entries are already included by default.
+Includes hidden and dot-prefixed entries.
 
 .PARAMETER HideEmptyFolders
 Hides directories containing no included files.
@@ -43,8 +44,8 @@ param (
     [Alias("r")]
     [switch]$Dereference,
 
-    [Alias("l")]
-    [switch]$Long,
+    [Alias("s")]
+    [switch]$Short,
 
     [Alias("x")]
     [string]$Exclude,
@@ -77,8 +78,8 @@ $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "0.1.3"
-        Description = "Displays a complete size-aware filesystem tree by default, with optional filters."
+        Version = "0.1.4"
+        Description = "Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters."
         Invocation = "show-tree"
         Groups = @()
         Commands = @()
@@ -86,20 +87,23 @@ function New-ShowTreeHelpCatalogue {
         GlobalItems = @(
             [PSCustomObject]@{ Label = "path"; Description = "Starting path(s). Defaults to the current directory." },
             [PSCustomObject]@{ Label = "-r, --deref / -Dereference"; Description = "Use target metadata for symbolic-link sizes." },
-            [PSCustomObject]@{ Label = "-l, --long / -Long"; Description = "Compatibility flag. Files are already included by default." },
+            [PSCustomObject]@{ Label = "-s, --short / -Short"; Description = "Show directories only; directory sizes still include visible files." },
             [PSCustomObject]@{ Label = "-x, --exclude / -Exclude"; Description = "Exclude matching file paths." },
             [PSCustomObject]@{ Label = "-d, --max-depth / -MaxDepth"; Description = "Limit directory recursion. By default recursion is unbounded." },
             [PSCustomObject]@{ Label = "-m, --min-size / -MinSize"; Description = "Exclude files below this logical size." },
-            [PSCustomObject]@{ Label = "-a, --all / -All"; Description = "Compatibility flag. Hidden entries are already included by default." },
+            [PSCustomObject]@{ Label = "-a, --all / -All"; Description = "Include hidden and dot-prefixed entries." },
             [PSCustomObject]@{ Label = "-e, --hide-empty-folders / -HideEmptyFolders"; Description = "Hide directories with no included files." },
             [PSCustomObject]@{ Label = "-h, --help / -Help"; Description = "Show this help and skip traversal." }
         )
         Notes = @(
-            "With no filters, Show-Tree includes files, directories and hidden entries recursively without a depth limit."
+            "Files and directories are shown recursively without a depth limit by default.",
+            "Hidden entries are omitted unless -All is used; interactive output shows a reminder that is suppressed when the tree is piped."
         )
         Examples = @(
             "show-tree",
-            "show-tree . -d 2",
+            "show-tree . -All",
+            "show-tree . -Short",
+            "show-tree . -MaxDepth 2",
             "show-tree . -Exclude '*.tmp'"
         )
         HelpOptions = @("-h", "--help")
@@ -124,6 +128,20 @@ function Test-IsLink {
         $null -ne $Item.PSObject.Properties["LinkType"] -and
         $null -ne $Item.LinkType
     )
+}
+
+function Test-IsHiddenEntry {
+    param ($Item)
+
+    if ($Item.Name.StartsWith(".")) {
+        return $true
+    }
+
+    if ($null -ne $Item.PSObject.Properties["Attributes"]) {
+        return (($Item.Attributes -band [System.IO.FileAttributes]::Hidden) -ne 0)
+    }
+
+    return $false
 }
 
 function Get-LogicalFileSize {
@@ -180,6 +198,7 @@ function Get-FolderNode {
         [Nullable[int]]$MaxDepth,
         [Nullable[long]]$MinSize,
         [System.Management.Automation.WildcardPattern]$ExcludePattern,
+        [switch]$All,
         [switch]$Dereference,
         [int]$DepthLevel = 0
     )
@@ -191,6 +210,10 @@ function Get-FolderNode {
     $items = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
 
     foreach ($item in $items) {
+        if (-not $All -and (Test-IsHiddenEntry $item)) {
+            continue
+        }
+
         $isLink = Test-IsLink $item
 
         if ($item.PSIsContainer -and -not $isLink) {
@@ -204,6 +227,7 @@ function Get-FolderNode {
                 -MaxDepth $MaxDepth `
                 -MinSize $MinSize `
                 -ExcludePattern $ExcludePattern `
+                -All:$All `
                 -Dereference:$Dereference `
                 -DepthLevel ($DepthLevel + 1)
 
@@ -261,6 +285,7 @@ function Get-RootNodes {
         [Nullable[int]]$MaxDepth,
         [Nullable[long]]$MinSize,
         [System.Management.Automation.WildcardPattern]$ExcludePattern,
+        [switch]$All,
         [switch]$Dereference
     )
 
@@ -282,6 +307,11 @@ function Get-RootNodes {
 
         foreach ($resolvedPath in $resolvedPaths) {
             $item = Get-Item -LiteralPath $resolvedPath.ProviderPath -Force -ErrorAction Stop
+
+            if ($isPattern -and -not $All -and (Test-IsHiddenEntry $item)) {
+                continue
+            }
+
             $isLink = Test-IsLink $item
 
             if ($item.PSIsContainer -and -not $isLink) {
@@ -291,6 +321,7 @@ function Get-RootNodes {
                         -MaxDepth $MaxDepth `
                         -MinSize $MinSize `
                         -ExcludePattern $ExcludePattern `
+                        -All:$All `
                         -Dereference:$Dereference)
                 )
                 continue
@@ -324,14 +355,22 @@ function Get-RootNodes {
 function Get-VisibleChildren {
     param (
         $Node,
+        [switch]$Short,
         [switch]$HideEmptyFolders
     )
 
     foreach ($child in $Node.Children) {
-        if ($child.Kind -eq "Folder" -and $HideEmptyFolders -and -not $child.HasFiles) {
+        if ($child.Kind -eq "Folder") {
+            if ($HideEmptyFolders -and -not $child.HasFiles) {
+                continue
+            }
+            $child
             continue
         }
-        $child
+
+        if (-not $Short) {
+            $child
+        }
     }
 }
 
@@ -381,11 +420,12 @@ function Write-TreeChildren {
     param (
         $Console,
         $Node,
+        [switch]$Short,
         [switch]$HideEmptyFolders,
         [bool[]]$AncestorLast = @()
     )
 
-    $children = @(Get-VisibleChildren -Node $Node -HideEmptyFolders:$HideEmptyFolders)
+    $children = @(Get-VisibleChildren -Node $Node -Short:$Short -HideEmptyFolders:$HideEmptyFolders)
 
     for ($i = 0; $i -lt $children.Count; $i++) {
         $child = $children[$i]
@@ -397,6 +437,7 @@ function Write-TreeChildren {
             Write-TreeChildren `
                 -Console $Console `
                 -Node $child `
+                -Short:$Short `
                 -HideEmptyFolders:$HideEmptyFolders `
                 -AncestorLast @($AncestorLast + $isLast)
         }
@@ -425,14 +466,13 @@ $excludePattern = if ([string]::IsNullOrWhiteSpace($Exclude)) {
     )
 }
 
-# -Long and -All remain accepted for backwards compatibility. Since 0.1.3 their
-# historical behavior is simply the default complete tree.
 $roots = @(
     Get-RootNodes `
         -Paths $Path `
         -MaxDepth $MaxDepth `
         -MinSize $MinSize `
         -ExcludePattern $excludePattern `
+        -All:$All `
         -Dereference:$Dereference
 )
 
@@ -456,6 +496,7 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
         Write-TreeChildren `
             -Console $ui `
             -Node $root `
+            -Short:$Short `
             -HideEmptyFolders:$HideEmptyFolders
     }
 }
@@ -463,3 +504,8 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
 $grandTotal = ($roots | Measure-Object -Property SizeBytes -Sum).Sum
 Write-R3Line $ui
 Write-R3KeyValue $ui "Total size" (Format-TreeSize ([long]$grandTotal))
+
+$interactiveInvocation = ($MyInvocation.PipelinePosition -eq $MyInvocation.PipelineLength)
+if (-not $All -and $interactiveInvocation) {
+    Write-R3Status $ui warning "Hidden entries are omitted. Use -All (-a) to include them."
+}
