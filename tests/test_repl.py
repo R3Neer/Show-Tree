@@ -30,44 +30,90 @@ def read_to_prompt(child: pexpect.spawn) -> str:
     return expect_while_answering_cpr(child, PROMPT)
 
 
+def submit(child: pexpect.spawn, command: str) -> None:
+    """Submit one line as a terminal Enter key, not as a Unix LF."""
+    child.send(command)
+    child.send("\r")
+
+
+def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
+    """Execute one REPL line and collect everything after an execution marker.
+
+    Reedline redraws every typed character, so the complete marker must not occur
+    literally in the submitted source. Split it into two string literals and only
+    join it at execution time; then pexpect can distinguish command execution from
+    an editor repaint.
+    """
+    midpoint = len(marker) // 2
+    left = marker[:midpoint]
+    right = marker[midpoint:]
+    submit(child, f"print ('{left}' + '{right}'); {command}")
+    output = expect_while_answering_cpr(child, marker)
+    output += read_to_prompt(child)
+    return output
+
+
 def main() -> None:
     child = pexpect.spawn(
         "nu",
         ["--config", str(CONFIG)],
         cwd=str(ROOT.parent),
         encoding="utf-8",
-        timeout=20,
-        dimensions=(40, 140),
+        timeout=25,
+        dimensions=(50, 160),
     )
 
     try:
         read_to_prompt(child)
 
-        # Reedline may repaint the prompt while accepting Enter. Synchronize on
-        # the command's own output first, then consume through the next prompt.
-        child.sendline("show-tree Show-Tree -d 0")
-        rendered = expect_while_answering_cpr(child, "SHOW-TREE")
-        rendered += read_to_prompt(child)
+        rendered = run_marked(child, "show-tree Show-Tree -d 1", "__SHOW_TREE_DIRECT__")
+        if "SHOW-TREE" not in rendered:
+            raise AssertionError(
+                "A direct Show-Tree call did not render the R3CLI tree. Full REPL output:\n"
+                + rendered
+            )
         if "╭" in rendered:
             raise AssertionError(
-                "The native Show-Tree result was displayed a second time as a Nushell table."
+                "A direct Show-Tree call should render the R3CLI tree, not the native table."
             )
 
-        child.sendline("$ans.last.0.type")
-        ans_output = expect_while_answering_cpr(child, re.compile(r"\bdir\b"))
-        ans_output += read_to_prompt(child)
-        if not re.search(r"\bdir\b", ans_output):
-            raise AssertionError(f"$ans.last did not retain the native result:\n{ans_output}")
+        repeated = run_marked(child, "$ans.last", "__SHOW_TREE_LAST__")
+        if "SHOW-TREE" not in repeated:
+            raise AssertionError(
+                "$ans.last did not redisplay the Show-Tree value as the R3CLI tree. Full REPL output:\n"
+                + repeated
+            )
+        if "╭" in repeated:
+            raise AssertionError(
+                "$ans.last should redisplay the Show-Tree value as the same R3CLI tree."
+            )
 
-        child.sendline("[1 2]")
-        normal_output = expect_while_answering_cpr(child, "╭")
-        normal_output += read_to_prompt(child)
+        explicit_table = run_marked(child, "$ans.last | table", "__SHOW_TREE_TABLE__")
+        if "╭" not in explicit_table:
+            raise AssertionError(
+                "Explicit table output did not use Nushell's normal table renderer. Full REPL output:\n"
+                + explicit_table
+            )
+        for expected in ("name", "type", "size", "path"):
+            if expected not in explicit_table:
+                raise AssertionError(
+                    f"Explicit table output is missing the {expected!r} column:\n{explicit_table}"
+                )
+        # The structured-output test asserts the exact public column contract.
+        # Do not substring-search for presentation fields here: the repository and
+        # paths legitimately contain the word "tree" in "Show-Tree".
+        if "[table" in explicit_table:
+            raise AssertionError(
+                "Explicit table output collapsed descendants into nested table placeholders."
+            )
+
+        normal_output = run_marked(child, "[1 2]", "__NORMAL_TABLE__")
         if "╭" not in normal_output:
             raise AssertionError(
                 "Show-Tree's display hook did not preserve the previous/default table renderer."
             )
 
-        child.sendline("exit")
+        submit(child, "exit")
         child.expect(pexpect.EOF)
     finally:
         if child.isalive():

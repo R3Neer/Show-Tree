@@ -1,145 +1,274 @@
 # Show-Tree
 
-A size-aware filesystem tree for PowerShell and Nushell, rendered with [R3CLI](https://github.com/R3Neer/R3CLI).
+[![Test](https://github.com/R3Neer/Show-Tree/actions/workflows/test.yml/badge.svg)](https://github.com/R3Neer/Show-Tree/actions/workflows/test.yml)
 
-Show-Tree is self-contained for users: the exact R3CLI PowerShell and Nushell adapters it needs are vendored as a private dependency. A separate R3CLI checkout, Python, or dependency build is not required to install or run Show-Tree.
+A size-aware filesystem tree for PowerShell and Nushell, with an R3CLI terminal view for humans and native Nushell rows for pipelines.
 
-The PowerShell implementation traverses the filesystem directly. The Nushell implementation delegates traversal and filtering to Nushell's structured `du --long` output, then normalizes the result for both interactive rendering and native pipeline use.
+Show-Tree is designed around one rule: **presentation and data are the same result, not two unrelated modes**.
 
-## Behaviour
+```text
+interactive REPL                pipeline / explicit table
+       │                                  │
+       ▼                                  ▼
+  R3CLI tree                     native Nushell rows
+       │                                  │
+       └──────── same traversal ───────────┘
+```
 
-Both implementations share the same filesystem contract:
+R3CLI is bundled as a verified private dependency. Installing Show-Tree does not require a separate R3CLI checkout or Python runtime.
 
-- Sizes are logical file bytes. Directory-entry metadata is not counted.
-- `MaxDepth` / `--max-depth` limits traversal and therefore affects totals.
-- `MinSize` / `--min-size` excludes files from both the tree and totals.
-- `Long` / `--long` controls whether individual file nodes are exposed.
-- `HideEmptyFolders` / `--hide-empty-folders` hides directories containing no included files.
-- `All` / `--all` includes dot-prefixed entries.
-- Directories are ordered before files, with case-insensitive name ordering.
-- Directory symbolic links are not recursively traversed.
+## Quick start
 
-## Nushell values and display
+In Nushell:
 
-`show-tree` always returns native Nushell values. Presentation depends on the destination:
+```nu
+show-tree D:/Tools -d 2
+```
 
-- A direct interactive call renders the normal R3CLI tree and returns the native value with metadata marking it as already rendered. The installed display integration suppresses only that duplicate automatic table while preserving the previous display hook.
-- Piped, redirected, captured and subexpression calls return the same native values without rendering the R3CLI tree.
+A direct REPL result is rendered as a tree:
 
-The display integration lives in the repository file `show-tree-display.nu`; the installer no longer injects the full hook implementation into the user's `config.nu`.
+```text
+SHOW-TREE
+D:\Tools [Folder] (...)
+├── ModpackTools [Folder] (...)
+├── R3CLI [Folder] (...)
+└── Show-Tree [Folder] (...)
 
-Each returned node has this shape:
+Total size       ...
+```
+
+The value behind that view is still native Nushell data. Ask for a table explicitly and the same traversal becomes a normal flat table:
+
+```nu
+show-tree D:/Tools -d 2 | table
+```
+
+```text
+╭───┬──────────────┬──────┬──────────┬─────────────────────────╮
+│ # │     name     │ type │   size   │          path           │
+├───┼──────────────┼──────┼──────────┼─────────────────────────┤
+│ 0 │ Tools        │ dir  │ ...      │ D:\Tools                │
+│ 1 │ ModpackTools │ dir  │ ...      │ D:\Tools\ModpackTools   │
+│ 2 │ R3CLI        │ dir  │ ...      │ D:\Tools\R3CLI          │
+│ 3 │ Show-Tree    │ dir  │ ...      │ D:\Tools\Show-Tree      │
+╰───┴──────────────┴──────┴──────────┴─────────────────────────╯
+```
+
+The rows are flat, so the table shows actual filesystem entries instead of one root row containing a mysterious `[table 36 rows]` cell. Nushell may still trim very long paths when the terminal itself is narrow, which is ordinary `table` behaviour rather than Show-Tree hiding descendants.
+
+Ordinary Nu operations work without a JSON flag or text parsing:
+
+```nu
+show-tree D:/Tools -d 2
+| where type == dir
+| sort-by size --reverse
+
+show-tree D:/Tools -d 3 -l
+| where size > 10mb
+| select name size path
+
+show-tree D:/Tools -d 3
+| to json
+```
+
+## `$ans.last` and interactive display
+
+A direct call stores the same native table in Nushell's last-result machinery when `max_last_result_size` allows it:
+
+```nu
+show-tree D:/Tools -d 2
+$ans.last
+```
+
+Both lines render as the Show-Tree tree. The display integration recognizes metadata attached to the unchanged result and redraws the R3CLI view instead of Nushell's automatic table.
+
+To inspect the native rows explicitly:
+
+```nu
+$ans.last | table
+```
+
+or keep a stable reference before experimenting:
+
+```nu
+let tree = $ans.last
+$tree | table
+$tree | where type == dir
+```
+
+This matters because `table` itself produces rendered text. After running `$ans.last | table`, Nushell may make that rendered text the new last result. Saving the native value to a variable avoids that normal REPL behaviour.
+
+If a marked Show-Tree value is filtered, sorted, selected or otherwise changed, the display integration does **not** redraw a stale hierarchy. The transformed value falls back to Nushell's normal display path.
+
+## Nushell data contract
+
+The public result is deliberately flat:
 
 ```nu
 {
     name: string
     type: 'dir' | 'file'
-    path: string
     size: filesize
-    children: list
+    path: string
 }
 ```
 
-Directory nodes contain visible child nodes recursively. File nodes use an empty `children` list. Without `--long`, file nodes are omitted while their sizes still contribute to directory totals.
+One visible filesystem node equals one row. There are no nested `children` tables to collapse into placeholders such as `[table 36 rows]`.
 
-Normal pipelines therefore work directly:
+The branch glyphs and depth information required for the interactive R3CLI tree are presentation metadata, not public columns. They are therefore absent from `table`, JSON, NUON and other machine-readable output.
 
-```nu
-show-tree D:/Projects --max-depth 2 | get name
+`name` is kept alongside the full path because it is the natural field for filtering and selection in Nu, while `path` stays available for filesystem actions. A root whose basename would otherwise be empty uses the full root path as its display name.
 
-let tree = (show-tree D:/Projects --max-depth 3 --long)
-$tree.0.children
-
-show-tree D:/Projects --max-depth 3 --long
-| to json
-| save --force project-tree.json
-```
-
-A direct REPL call also remains available through Nushell's `$ans.last` when `max_last_result_size` is enabled in the user's Nushell configuration:
-
-```nu
-show-tree D:/Projects -d 2
-$ans.last.0.children
-```
-
-No dedicated JSON mode is needed. Callers can use `to json`, `to nuon`, `to yaml`, filters, projections, or any other normal Nushell operation.
+Without `--long`, file rows are omitted from the returned table, but file sizes still contribute to directory totals.
 
 ## Options
 
 | Behaviour | PowerShell | Nushell |
 | --- | --- | --- |
-| Starting paths | `Path` / positional | positional |
-| Dereference links | `-Dereference`, `-r` | `--deref`, `-r` |
-| Show file nodes | `-Long`, `-l` | `--long`, `-l` |
-| Exclude files | `-Exclude`, `-x` | `--exclude`, `-x` |
-| Maximum depth | `-MaxDepth`, `-d` | `--max-depth`, `-d` |
-| Minimum size | `-MinSize`, `-m` | `--min-size`, `-m` |
-| Dot-prefixed entries | `-All`, `-a` | `--all`, `-a` |
-| Hide empty folders | `-HideEmptyFolders`, `-e` | `--hide-empty-folders`, `-e` |
+| Starting paths | positional / `Path` | positional |
+| Dereference links for size metadata | `-Dereference`, `-r` | `--deref`, `-r` |
+| Include file rows | `-Long`, `-l` | `--long`, `-l` |
+| Exclude matching file paths | `-Exclude`, `-x` | `--exclude`, `-x` |
+| Maximum traversal depth | `-MaxDepth`, `-d` | `--max-depth`, `-d` |
+| Minimum included file size | `-MinSize`, `-m` | `--min-size`, `-m` |
+| Include dot-prefixed entries | `-All`, `-a` | `--all`, `-a` |
+| Hide folders with no included files | `-HideEmptyFolders`, `-e` | `--hide-empty-folders`, `-e` |
 | Help | `-Help`, `-h` | `--help`, `-h` |
 
-## Examples
+Examples:
 
-PowerShell:
+```nu
+show-tree
+show-tree D:/Projects -d 2
+show-tree D:/Projects -d 3 -l
+show-tree D:/Projects -m 10mb -e
+show-tree D:/Projects -x '*.tmp'
+```
 
 ```powershell
 Show-Tree
 Show-Tree D:\Projects -MaxDepth 2
-Show-Tree -Long -MinSize 10MB -HideEmptyFolders
-Show-Tree -Exclude "*.tmp"
+Show-Tree D:\Projects -Long -MinSize 10MB -HideEmptyFolders
+Show-Tree D:\Projects -Exclude "*.tmp"
 ```
 
-Nushell:
+## Filesystem semantics
 
-```nu
-show-tree
-show-tree D:/Projects --max-depth 2
-show-tree --long --min-size 10MiB --hide-empty-folders
-show-tree --exclude '*.tmp'
-show-tree D:/Projects -d 2 | to json
-```
+PowerShell and Nushell share the same user-facing traversal contract:
+
+- sizes are logical file bytes;
+- directory-entry metadata is not counted;
+- maximum depth limits traversal and therefore affects totals;
+- minimum size excludes files from both visible output and totals;
+- directories are ordered before files, case-insensitively by name;
+- directory symbolic links are not recursively traversed;
+- `--hide-empty-folders` / `-HideEmptyFolders` is evaluated after the active filters;
+- filesystem roots render using their full path, so a Windows root such as `D:\` never appears as a blank label.
+
+The Nushell backend uses structured `du --long` data and normalizes it before producing the public rows.
 
 ## Installation
 
-For PowerShell and Nushell together:
+### Nushell
 
-```powershell
-.\Install-ShowTree.ps1
+For a normal installation or update:
+
+```nu
+nu ./install-show-tree.nu
 ```
 
-For Nushell only:
+For repair when the current `config.nu` cannot load:
 
 ```nu
 nu --no-config-file ./install-show-tree.nu
 ```
 
-Using `--no-config-file` is intentional: it lets the installer repair a broken previous Show-Tree block even when the current `config.nu` cannot be loaded.
+The second form deliberately starts Nu without the user's configuration, allowing the installer to repair an older broken Show-Tree block.
 
-The PowerShell installer also supports shell-specific operation:
+### PowerShell and both-shell installation
+
+```powershell
+.\Install-ShowTree.ps1
+```
+
+Shell-specific installation is also available:
 
 ```powershell
 .\Install-ShowTree.ps1 -PowerShellOnly
 .\Install-ShowTree.ps1 -NushellOnly
 ```
 
-The installer verifies the bundled R3CLI dependency against `dependencies.json`. Nushell config updates are upgrade-safe: an existing marked Show-Tree block is replaced in place rather than removed and appended elsewhere, the complete candidate config is checked with `nu-check` before writing, and the previous config is backed up as `config.nu.show-tree.bak`. Ambiguous or mismatched Show-Tree markers cause the installer to stop without modifying the file.
+The installer:
 
-The dependency is private to Show-Tree. It is loaded from `vendor/R3CLI` and never requires an R3CLI repository beside Show-Tree or an R3CLI installation on `PSModulePath`.
+1. verifies the vendored R3CLI files against `dependencies.json`;
+2. replaces an existing marked Show-Tree block **in place** rather than appending duplicates;
+3. builds the complete candidate `config.nu` and checks it with `nu-check` before writing;
+4. backs up the previous Nu config as `config.nu.show-tree.bak`;
+5. refuses ambiguous or mismatched Show-Tree markers instead of guessing.
 
-## Updating R3CLI for maintainers
+Open a new Nushell session after installation so the updated import and display integration are loaded.
 
-R3CLI updates are explicit development work, following the same vendoring model used by ModpackTools. From a Show-Tree checkout, point the update helper at a clean R3CLI checkout:
+## R3CLI dependency
+
+Show-Tree vendors the exact PowerShell and Nushell R3CLI adapters it was tested against:
+
+```text
+vendor/
+└── R3CLI/
+    ├── powershell/
+    └── nushell/
+```
+
+The pinned source revision, version and SHA256 hashes live in `dependencies.json`. Users do not need another `R3CLI` directory beside Show-Tree.
+
+Maintainers update the vendored dependency explicitly from a clean R3CLI checkout:
 
 ```console
 python scripts/update_r3cli.py <clean-R3CLI-checkout>
 ```
 
-The helper refuses a dirty R3CLI checkout by default, builds both official shell adapters, replaces only the generated `vendor/R3CLI` destinations, and records the exact revision, version and SHA256 hashes in `dependencies.json`. Python is needed for this maintainer operation only, not for users installing Show-Tree.
+Python is required for that maintainer operation only.
+
+## Architecture
+
+```text
+show-tree.nu
+  traversal + normalization + native Nu rows
+          │
+          ├── redirected/captured ──> normal Nu pipeline
+          │
+          └── direct REPL result ───> render metadata
+                                        │
+                                        ▼
+show-tree-display.nu ───────────────> R3CLI tree
+
+Show-Tree.ps1 ──────────────────────> PowerShell tree implementation
+```
+
+Keeping display integration outside the main Nu module means scripts can import the command without automatically changing their global display hook.
+
+## Development
+
+CI targets Nushell 0.115.1 and Windows PowerShell integration. The suite covers:
+
+- native flat output and serialization;
+- explicit `table` readability for ordinary paths;
+- direct R3CLI rendering in a real pseudo-terminal REPL;
+- `$ans.last` redisplay;
+- preservation of the normal Nushell display hook;
+- broken previous-install repair and config backup;
+- idempotent reinstall;
+- R3CLI dependency-integrity rejection;
+- PowerShell profile installation.
+
+Run the structured Nu test directly with:
+
+```nu
+nu tests/Nushell.Structured.nu
+```
 
 ## Requirements
 
-- PowerShell 7 for the PowerShell command and installer
-- Nushell 0.115+ for the Nushell command
-- Windows for the installer and legacy `tree.com` forwarding wrapper
-
-R3CLI is already bundled as a verified private dependency.
+- Nushell 0.115+ for the Nushell command;
+- PowerShell 7 for the PowerShell command and shared installer;
+- Windows for profile installation and the legacy `tree.com` forwarding wrapper.
