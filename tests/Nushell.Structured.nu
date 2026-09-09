@@ -1,7 +1,9 @@
 use std/assert
 
 const SHOW_TREE = (path self ../show-tree.nu)
+const SHOW_TREE_DISPLAY = (path self ../show-tree-display.nu)
 use $SHOW_TREE [main]
+use $SHOW_TREE_DISPLAY save
 
 # Keep this path intentionally short. This test is about the normal table UX,
 # not about forcing Nushell's own width-trimming policy with an artificial UUID path.
@@ -106,6 +108,44 @@ for header in [name type size children path] {
 assert ($table_text | str contains 'root.txt') 'Explicit table output should show descendant rows directly.'
 assert ($table_text | str contains 'nested.txt') 'Flat children should remain readable as list values.'
 assert (not ($table_text | str contains '[table')) 'Explicit table output must not collapse descendants into nested-table placeholders.'
+
+# The installed `save` wrapper is type-aware through Show-Tree's private metadata.
+# It writes the same human tree that the REPL displays, without requiring `to tree`
+# or a Show-Tree-specific output flag.
+let saved_tree_path = ($fixture | path join 'saved-tree.txt')
+show-tree $fixture --max-depth 2 --long | save --force $saved_tree_path
+let saved_tree = (open --raw $saved_tree_path | ansi strip)
+assert ($saved_tree | str contains 'SHOW-TREE') 'Saving a Show-Tree result did not write the human tree banner.'
+assert ($saved_tree | str contains '├──') 'Saved Show-Tree output is missing tree branch glyphs.'
+assert ($saved_tree | str contains 'nested.txt') 'Saved Show-Tree output lost descendant rows.'
+assert ($saved_tree | str contains 'Total size') 'Saved Show-Tree output is missing the total-size footer.'
+assert (not ($saved_tree | str contains '╭')) 'Saving a Show-Tree result wrote a Nushell table instead of the tree.'
+
+# Row-preserving transforms remain tree-aware when saved. The removed original root
+# must not be reintroduced; alpha becomes a visual root and keeps nested.txt below it.
+let filtered_save_path = ($fixture | path join 'filtered-tree.txt')
+show-tree $fixture --max-depth 2 --long
+| where name in [alpha nested.txt]
+| save --force $filtered_save_path
+let filtered_saved = (open --raw $filtered_save_path | ansi strip)
+assert ($filtered_saved | str contains $alpha_path) 'Filtered save did not promote the retained orphan to a full-path visual root.'
+assert ($filtered_saved | str contains 'nested.txt') 'Filtered save lost a retained descendant.'
+assert (not ($filtered_saved | str contains 'beta')) 'Filtered save reintroduced a removed node.'
+
+# Explicit serialization remains explicit: once `to json` consumes the native rows,
+# the Show-Tree metadata no longer causes save to render a human tree.
+let machine_path = ($fixture | path join 'machine.json')
+$with_files | to json | save --force $machine_path
+let machine = (open $machine_path)
+assert (($machine | describe) =~ '^(list|table)') 'Explicit JSON serialization did not remain machine-readable through the save wrapper.'
+assert (($machine | length) == ($with_files | length)) 'Explicit JSON serialization changed the Show-Tree row count.'
+
+# All unrelated values must behave exactly like Nushell's builtin save, including
+# automatic extension-based serialization.
+let normal_json_path = ($fixture | path join 'normal.json')
+[{a: 1} {a: 2}] | save --force $normal_json_path
+let normal_json = (open $normal_json_path)
+assert equal ($normal_json | get a) [1 2]
 
 rm --recursive --force $fixture
 print 'Nushell structured-output tests passed.'

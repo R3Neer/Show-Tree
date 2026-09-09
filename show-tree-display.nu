@@ -1,9 +1,10 @@
-# Show-Tree display integration for interactive Nushell sessions.
+# Show-Tree display and save integration for Nushell sessions.
 #
-# `show-tree.nu` owns traversal and structured data. This module owns only the
-# interactive presentation policy: as long as a transformed Show-Tree result still
-# contains enough semantic columns to identify its nodes, it is rendered as a
-# truthful R3CLI tree built from the rows that actually remain.
+# `show-tree.nu` owns traversal and structured data. This module owns presentation:
+# representable Show-Tree values render as truthful R3CLI trees in the REPL, and an
+# unqualified `save` imported by the installer preserves that same tree view when a
+# Show-Tree value is written to a file. Other values delegate to Nushell's builtin
+# `%save` unchanged.
 
 const R3CLI_MODULE = (path self vendor/R3CLI/nushell/r3cli)
 use $R3CLI_MODULE
@@ -153,12 +154,8 @@ def render-visible-node [
 }
 
 
-# Exported because Nushell may store `display_output` as source text. The source
-# hook is parsed later by the REPL, so it resolves these helpers through this
-# module's stable namespace rather than through lexical imports from config.nu.
-export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -> nothing {
+def render-tree-with-ui [value: any, lineage: list<any>, ui: record]: nothing -> nothing {
     let plain_rows = (as-row-list $value)
-    let ui = (r3cli console --colour auto)
 
     r3cli banner $ui 'SHOW-TREE'
 
@@ -201,6 +198,44 @@ export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -
 
     r3cli line $ui
     r3cli key-value $ui 'Total size' (format-tree-size $total)
+}
+
+
+# Exported because Nushell may store `display_output` as source text. The source
+# hook is parsed later by the REPL, so it resolves these helpers through this
+# module's stable namespace rather than through lexical imports from config.nu.
+export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -> nothing {
+    let ui = (r3cli console --colour auto)
+    render-tree-with-ui $value $lineage $ui
+}
+
+
+# Render exactly the human tree into plain UTF-8 text. R3CLI's sink is used rather
+# than duplicating the renderer. The temporary file lets the sink closure stay
+# immutable while still collecting all emitted lines in Nushell.
+export def show-tree-render-text-internal [value: any, lineage: list<any>]: nothing -> string {
+    let capture_path = ($nu.temp-dir | path join $'show-tree-render-((random uuid)).txt')
+    '' | %save --force --raw $capture_path
+
+    let rendered = try {
+        let sink = {|text, stream|
+            (($text | ansi strip) + (char nl)) | %save --append --raw $capture_path
+        }
+        let ui = (r3cli console --colour never --sink $sink)
+        render-tree-with-ui $value $lineage $ui
+        open --raw $capture_path
+    } catch {|err|
+        if ($capture_path | path exists) {
+            rm --force $capture_path
+        }
+        error make { msg: $'Could not render Show-Tree for saving: ($err.msg)' }
+    }
+
+    if ($capture_path | path exists) {
+        rm --force $capture_path
+    }
+
+    $rendered
 }
 
 
@@ -253,6 +288,35 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
 
     let known_paths = ($lineage | get path)
     $paths | all {|path| $path in $known_paths }
+}
+
+
+# Shadow Nushell's save only at the user-facing name. `%save` remains the builtin
+# escape hatch and is what this wrapper delegates to for every non-Show-Tree value.
+# For a representable Show-Tree value, save writes the same human tree that the REPL
+# would display, including after row-preserving filters and sorts.
+export def save [
+    filename: path
+    --stderr (-e): path
+    --raw (-r)
+    --append (-a)
+    --force (-f)
+    --progress (-p)
+] {
+    metadata access {|meta|
+        let value = $in
+        let output = if (show-tree-can-render-internal $meta $value) {
+            show-tree-render-text-internal $value ($meta | get show_tree_render)
+        } else {
+            $value
+        }
+
+        if $stderr == null {
+            $output | %save $filename --raw=$raw --append=$append --force=$force --progress=$progress
+        } else {
+            $output | %save $filename --stderr=$stderr --raw=$raw --append=$append --force=$force --progress=$progress
+        }
+    }
 }
 
 

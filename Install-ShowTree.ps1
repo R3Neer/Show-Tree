@@ -214,7 +214,17 @@ if ($installPowerShell) {
     $powerShellProfileBlock = @(
         "# >>> Show-Tree >>>"
         "function Show-Tree {"
-        "    & '$escapedPowerShell' @args"
+        "    if (`$MyInvocation.PipelinePosition -lt `$MyInvocation.PipelineLength) {"
+        "        & '$escapedPowerShell' @args 6>&1 | ForEach-Object {"
+        "            if (`$_ -is [System.Management.Automation.InformationRecord]) {"
+        "                [string]`$_.MessageData"
+        "            } else {"
+        "                `$_"
+        "            }"
+        "        }"
+        "    } else {"
+        "        & '$escapedPowerShell' @args"
+        "    }"
         "}"
         ""
         "function tree {"
@@ -233,9 +243,23 @@ if ($installPowerShell) {
         -EndMarker "# <<< Show-Tree <<<" `
         -Block $powerShellProfileBlock
 
+    $showTreeBody = @(
+        'if ($MyInvocation.PipelinePosition -lt $MyInvocation.PipelineLength) {'
+        "    & '$escapedPowerShell' @args 6>&1 | ForEach-Object {"
+        '        if ($_ -is [System.Management.Automation.InformationRecord]) {'
+        '            [string]$_.MessageData'
+        '        } else {'
+        '            $_'
+        '        }'
+        '    }'
+        '} else {'
+        "    & '$escapedPowerShell' @args"
+        '}'
+    ) -join [Environment]::NewLine
+
     Set-Item `
         -Path Function:\global:Show-Tree `
-        -Value ([scriptblock]::Create("& '$escapedPowerShell' @args"))
+        -Value ([scriptblock]::Create($showTreeBody))
 
     $treeBody = @(
         "Import-Module '$escapedR3cli' -ErrorAction Stop"
@@ -269,13 +293,13 @@ if ($installNushell) {
     $nuScriptPath = $showTreeNushell.Replace("\", "/").Replace("'", "''")
     $nuDisplayPath = $showTreeDisplay.Replace("\", "/").Replace("'", "''")
 
-    # Keep config.nu deliberately small. The display hook implementation lives
-    # in a tested repository module rather than being injected as a large block
-    # of generated Nushell source into the user's configuration file.
+    # Keep config.nu deliberately small. The display and save integration lives
+    # in a tested repository module rather than being injected as generated Nu.
     $nuProfileBlock = @(
         "# >>> Show-Tree >>>"
         "use '$nuScriptPath' [main show-tree-help tree]"
         "use '$nuDisplayPath'"
+        "use '$nuDisplayPath' save"
         ""
         "def help [...rest: string] {"
         "    if ((`$rest | length) == 1) and ((`$rest | first) == 'show-tree') {"

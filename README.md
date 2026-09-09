@@ -14,6 +14,7 @@ native Nushell rows + lineage metadata
    │
    ├── direct REPL result ────────────────> R3CLI tree
    ├── where / sort-by / take / reverse ──> R3CLI tree rebuilt from remaining rows
+   ├── save <file> ───────────────────────> same tree as plain UTF-8 text
    ├── capture / JSON / NUON ─────────────> native data
    └── explicit `table` ──────────────────> Nushell table
 ```
@@ -129,6 +130,50 @@ show-tree D:/Tools -d 2
 and falls back to Nushell's normal display.
 
 Likewise, commands that fundamentally change the shape, such as `get size` or `group-by`, are displayed normally by Nu.
+
+## Saving the tree
+
+A normal Show-Tree installation imports a thin wrapper around Nushell's `save`. When the incoming value is still a representable Show-Tree result, the wrapper writes the same tree that the REPL would display:
+
+```nu
+show-tree D:/Tools -d 3 -l | save tree.txt
+```
+
+The saved file contains plain UTF-8 text with the tree glyphs, sizes, banner, and total, but without ANSI colour escapes.
+
+Because the wrapper reads the same private lineage metadata as the interactive renderer, transformed results save truthfully too:
+
+```nu
+show-tree D:/Tools -d 4 -l
+| where size > 1mb
+| sort-by size --reverse
+| save large-tree.txt
+```
+
+The file contains exactly the remaining forest, including orphan promotion and hierarchy-safe sibling ordering. There is no `to tree`, `--render`, or output-path switch.
+
+For every value that is not a representable Show-Tree result, the wrapper delegates directly to Nushell's builtin `%save`, including normal extension-based serializers and the standard `--raw`, `--append`, `--force`, `--stderr`, and `--progress` flags. The builtin remains available explicitly at any time:
+
+```nu
+show-tree D:/Tools -d 3 -l | %save tree.json
+```
+
+More commonly, make the machine representation explicit before saving:
+
+```nu
+show-tree D:/Tools -d 3 -l | to json | save tree.json
+show-tree D:/Tools -d 3 -l | to nuon | save tree.nuon
+```
+
+Once `to json`, `to nuon`, `table`, or another renderer has consumed the native rows, the value is no longer a Show-Tree object and `save` behaves normally.
+
+PowerShell keeps the same principle without shadowing `Set-Content`. Interactive output remains R3CLI presentation, while piping the installed command exposes plain tree lines on the success pipeline:
+
+```powershell
+Show-Tree D:\Tools -MaxDepth 3 | Set-Content tree.txt
+```
+
+No Show-Tree-specific output option is needed in either shell.
 
 ## Explicit table and flattened data
 
@@ -288,6 +333,8 @@ nu --no-config-file ./install-show-tree.nu
 
 The second form deliberately starts Nu without the user's configuration, allowing the installer to repair an older broken Show-Tree block.
 
+The installed block imports both the display integration and Show-Tree's tree-aware `save` wrapper. `%save` remains Nushell's builtin command and bypasses that wrapper explicitly.
+
 ### PowerShell and both-shell installation
 
 ```powershell
@@ -309,7 +356,7 @@ The installer:
 4. backs up the previous Nu config as `config.nu.show-tree.bak`;
 5. refuses ambiguous or mismatched Show-Tree markers instead of guessing.
 
-Open a new Nushell session after installation so the updated import and display integration are loaded.
+Open a new Nushell session after installation so the updated import, display integration, and save wrapper are loaded.
 
 ## R3CLI dependency
 
@@ -347,15 +394,22 @@ show-tree.nu
                            │
              where / sort / take / ...
                            │
-                           ▼
-show-tree-display.nu
-  ├── representable result ──> rebuild current forest ──> R3CLI tree
-  └── other result ──────────> previous/default Nu display
+            ┌──────────────┴───────────────┐
+            ▼                              ▼
+     display_output                   installed save
+            │                              │
+            ▼                              ▼
+show-tree-display.nu              same reconstructed tree
+  rebuild current forest            as plain UTF-8 text
+            │
+            ▼
+        R3CLI tree
 
 explicit `table` / JSON / NUON consume the native rows directly
+`%save` bypasses the Show-Tree save wrapper and calls Nushell's builtin
 ```
 
-Keeping display integration outside the main Nu module means scripts can import the command without automatically changing their global display hook.
+Keeping presentation integration outside the main Nu traversal module means scripts can import the data command alone without automatically changing their global display or save behavior.
 
 ## Development
 
@@ -367,9 +421,12 @@ CI targets Nushell 0.115.1 and Windows PowerShell integration. The suite covers:
 - filtered-result tree reconstruction and orphan promotion;
 - hierarchy-safe `sort-by` rendering with transformed sibling order;
 - `$ans.last` redisplay of original and filtered trees;
+- tree-aware `save` for original and transformed Show-Tree values;
+- preservation of explicit JSON serialization and builtin save delegation;
 - fallback after transformations that remove required tree fields;
 - preservation of Nushell's normal display hook;
-- broken previous-install repair and config backup;
+- installed save-wrapper configuration, broken-install repair, and config backup;
+- PowerShell pipeline-to-file tree output without ANSI escapes;
 - idempotent reinstall;
 - R3CLI dependency-integrity rejection;
 - PowerShell profile installation.
