@@ -99,11 +99,9 @@ def main() -> None:
                 raise AssertionError(
                     f"Explicit table output is missing the {expected!r} column:\n{explicit_table}"
                 )
-        for presentation_only in ("tree", "depth"):
-            if presentation_only in explicit_table:
-                raise AssertionError(
-                    f"Explicit table output leaked presentation-only {presentation_only!r} data:\n{explicit_table}"
-                )
+        # The structured-output test asserts the exact public column contract.
+        # Do not substring-search for presentation fields here: the repository and
+        # paths legitimately contain the word "tree" in "Show-Tree".
         if "[table" in explicit_table:
             raise AssertionError(
                 "Explicit table output collapsed descendants into nested table placeholders."
