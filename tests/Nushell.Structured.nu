@@ -15,6 +15,14 @@ mkdir $empty
 'abc' | save --force ($fixture | path join 'root.txt')
 'hello' | save --force ($alpha | path join 'nested.txt')
 
+# The interactive display contract depends on custom pipeline metadata reaching
+# Nushell's display_output hook. Test that boundary independently of the PTY so a
+# rendering failure cannot masquerade as a traversal problem.
+let presentation_meta = (show-tree $fixture --max-depth 2 --long | metadata)
+assert equal ($presentation_meta.show_tree_result? | default false) true
+assert (($presentation_meta.show_tree_render? | default [] | length) > 1) 'Show-Tree render metadata did not survive the command boundary.'
+assert equal ($presentation_meta.show_tree_render | get path | first) ($fixture | path expand)
+
 let with_files = (show-tree $fixture --max-depth 2 --long)
 let expected_columns = [name type size path]
 assert equal ($with_files | columns) $expected_columns
