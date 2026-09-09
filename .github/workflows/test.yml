@@ -97,6 +97,7 @@ jobs:
           if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Expected one Show-Tree end marker.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_BEFORE') -gt $text.IndexOf('# >>> Show-Tree >>>')) { throw 'Installer moved the Show-Tree block ahead of preceding config.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_AFTER') -lt $text.IndexOf('# <<< Show-Tree <<<')) { throw 'Installer moved the Show-Tree block behind following config.' }
+          if ($text -notmatch "show-tree-display\.nu' save") { throw 'Installer did not import the tree-aware save wrapper.' }
 
           $backup = $nuConfig + '.show-tree.bak'
           if (-not (Test-Path -LiteralPath $backup)) { throw 'Nushell config backup was not created.' }
@@ -107,6 +108,12 @@ jobs:
               error make { msg: 'surrounding config did not load' }
           }
           show-tree Show-Tree -d 0 | get 0.type | print
+          let saved = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
+          show-tree Show-Tree -d 1 | save --force $saved
+          let saved_text = (open --raw $saved | ansi strip)
+          if not ($saved_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the tree' } }
+          if not ($saved_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
+          rm --force $saved
           '@
           nu --config $nuConfig -c $validationCode
 
@@ -114,9 +121,20 @@ jobs:
         shell: pwsh
         run: ./Show-Tree/Install-ShowTree.ps1 -PowerShellOnly
 
-      - name: Validate PowerShell profile import
+      - name: Validate PowerShell profile import and pipeline output
         shell: pwsh
-        run: pwsh -Command 'Show-Tree Show-Tree -MaxDepth 0'
+        run: |
+          pwsh -Command 'Show-Tree Show-Tree -MaxDepth 0'
+
+          $saved = Join-Path $env:RUNNER_TEMP 'show-tree-powershell-pipe.txt'
+          $env:SHOW_TREE_PIPE_TEST = $saved
+          pwsh -Command 'Show-Tree Show-Tree -MaxDepth 1 | Set-Content -LiteralPath $env:SHOW_TREE_PIPE_TEST -Encoding utf8'
+
+          if (-not (Test-Path -LiteralPath $saved)) { throw 'PowerShell pipeline did not create the output file.' }
+          $savedText = Get-Content -LiteralPath $saved -Raw
+          if ($savedText -notmatch 'SHOW-TREE') { throw 'PowerShell pipeline did not receive the tree banner.' }
+          if ($savedText -notmatch 'Total size') { throw 'PowerShell pipeline did not receive the tree footer.' }
+          if ($savedText.Contains([string][char]27)) { throw 'PowerShell pipeline output contains ANSI escape sequences.' }
 
       - name: Reinstall both integrations idempotently
         shell: pwsh
