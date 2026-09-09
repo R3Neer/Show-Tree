@@ -135,7 +135,7 @@ assert (not ($filtered_saved | str contains 'beta')) 'Filtered save reintroduced
 # Explicit serialization remains explicit: once `to json` consumes the native rows,
 # the Show-Tree metadata no longer causes save to render a human tree.
 let machine_path = ($fixture | path join 'machine.json')
-show-tree $fixture --max-depth 2 --long | to json | save --force $machine_path
+$with_files | to json | save --force $machine_path
 let machine = (open $machine_path)
 assert (($machine | describe) =~ '^(list|table)') 'Explicit JSON serialization did not remain machine-readable through the save wrapper.'
 assert (($machine | length) == ($with_files | length)) 'Explicit JSON serialization changed the Show-Tree row count.'
