@@ -1,9 +1,11 @@
 use std/assert
 
 const SHOW_TREE = (path self ../show-tree.nu)
-const SHOW_TREE_DISPLAY = (path self ../show-tree-display.nu)
+const SHOW_TREE_FORMAT = (path self ../show-tree-format.nu)
+const SHOW_TREE_SAVE = (path self ../show-tree-save.nu)
 use $SHOW_TREE [main]
-use $SHOW_TREE_DISPLAY save
+use $SHOW_TREE_FORMAT ['to showtree' 'from showtree']
+use $SHOW_TREE_SAVE save
 
 # Keep this path intentionally short. This test is about the normal table UX,
 # not about forcing Nushell's own width-trimming policy with an artificial UUID path.
@@ -109,9 +111,8 @@ assert ($table_text | str contains 'root.txt') 'Explicit table output should sho
 assert ($table_text | str contains 'nested.txt') 'Flat children should remain readable as list values.'
 assert (not ($table_text | str contains '[table')) 'Explicit table output must not collapse descendants into nested-table placeholders.'
 
-# The installed `save` wrapper is type-aware through Show-Tree's private metadata.
-# It writes the same human tree that the REPL displays, without requiring `to tree`
-# or a Show-Tree-specific output flag.
+# Normal save still writes the human tree when no .showtree persistence format is
+# requested. The filename extension is intentionally irrelevant to this human view.
 let saved_tree_path = ($fixture | path join 'saved-tree.txt')
 show-tree $fixture --max-depth 2 --long | save --force $saved_tree_path
 let saved_tree = (open --raw $saved_tree_path | ansi strip)
@@ -121,8 +122,7 @@ assert ($saved_tree | str contains 'nested.txt') 'Saved Show-Tree output lost de
 assert ($saved_tree | str contains 'Total size') 'Saved Show-Tree output is missing the total-size footer.'
 assert (not ($saved_tree | str contains '╭')) 'Saving a Show-Tree result wrote a Nushell table instead of the tree.'
 
-# Row-preserving transforms remain tree-aware when saved. The removed original root
-# must not be reintroduced; alpha becomes a visual root and keeps nested.txt below it.
+# Row-preserving transforms remain tree-aware when saved as human text.
 let filtered_save_path = ($fixture | path join 'filtered-tree.txt')
 show-tree $fixture --max-depth 2 --long
 | where name in [alpha nested.txt]
@@ -132,8 +132,57 @@ assert ($filtered_saved | str contains $alpha_path) 'Filtered save did not promo
 assert ($filtered_saved | str contains 'nested.txt') 'Filtered save lost a retained descendant.'
 assert (not ($filtered_saved | str contains 'beta')) 'Filtered save reintroduced a removed node.'
 
-# Explicit serialization remains explicit: once `to json` consumes the native rows,
-# the Show-Tree metadata no longer causes save to render a human tree.
+# .showtree is the native persistent snapshot format. Saving by extension stores a
+# versioned NUON envelope, while opening by extension restores native rows and the
+# private lineage metadata needed for automatic tree rendering.
+let snapshot_path = ($fixture | path join 'snapshot.showtree')
+$with_files | save --force $snapshot_path
+let snapshot_raw = (open --raw $snapshot_path)
+assert ($snapshot_raw | str contains 'schema_version') '.showtree did not store a versioned envelope.'
+assert ($snapshot_raw | str contains 'producer_version') '.showtree did not store the producer version.'
+assert ($snapshot_raw | str contains 'lineage') '.showtree did not persist lineage.'
+
+let reopened = (open $snapshot_path)
+assert equal ($reopened | columns) $expected_columns
+assert equal ($reopened | to nuon) ($with_files | to nuon)
+let reopened_meta = ($reopened | metadata)
+assert equal ($reopened_meta.show_tree_result? | default false) true
+assert equal ($reopened_meta.show_tree_render | length) ($reopened | length)
+assert equal (($reopened_meta.show_tree_render | where path == $alpha_path | first).parent_path) ($fixture | path expand)
+
+# A filtered snapshot is self-contained. It persists only rows that survived the
+# pipeline and records their effective promoted hierarchy, not the hidden original.
+let filtered_snapshot_path = ($fixture | path join 'filtered.showtree')
+show-tree $fixture --max-depth 2 --long
+| where name in [alpha nested.txt]
+| save --force $filtered_snapshot_path
+let reopened_filtered = (open $filtered_snapshot_path)
+assert equal ($reopened_filtered | get name) [alpha nested.txt]
+let reopened_filtered_meta = ($reopened_filtered | metadata)
+let alpha_lineage = ($reopened_filtered_meta.show_tree_render | where path == $alpha_path | first)
+let nested_lineage = ($reopened_filtered_meta.show_tree_render | where path == $nested_path | first)
+assert equal $alpha_lineage.parent_path null
+assert equal $nested_lineage.parent_path $alpha_path
+assert (not (($reopened_filtered_meta.show_tree_render | get path) | any {|path| $path | str contains 'beta' })) 'Filtered .showtree snapshot retained removed lineage.'
+
+# The explicit converter is equivalent to the extension-driven format and can be
+# used without a .showtree filename. from showtree restores the same metadata.
+let explicit_encoded = ($with_files | to showtree)
+let explicit_roundtrip = ($explicit_encoded | from showtree)
+assert equal ($explicit_roundtrip | to nuon) ($with_files | to nuon)
+assert equal (($explicit_roundtrip | metadata).show_tree_result? | default false) true
+
+let explicit_text_path = ($fixture | path join 'snapshot.data')
+$explicit_encoded | save --force $explicit_text_path
+assert equal (open --raw $explicit_text_path) $explicit_encoded
+
+# open --raw follows normal Nu semantics and bypasses from showtree.
+let raw_opened = (open --raw $snapshot_path)
+assert equal ($raw_opened | describe) 'string'
+assert ($raw_opened | str contains 'format: show-tree') 'open --raw unexpectedly parsed the .showtree file.'
+
+# Explicit JSON serialization remains explicit: once `to json` consumes the native
+# rows, the Show-Tree metadata no longer causes save to render a human tree.
 let machine_path = ($fixture | path join 'machine.json')
 $with_files | to json | save --force $machine_path
 let machine = (open $machine_path)
@@ -146,6 +195,16 @@ let normal_json_path = ($fixture | path join 'normal.json')
 [{a: 1} {a: 2}] | save --force $normal_json_path
 let normal_json = (open $normal_json_path)
 assert equal ($normal_json | get a) [1 2]
+
+# Corrupt and future-schema files must fail clearly instead of returning partial
+# data that merely happens to look tree-shaped.
+let future_path = ($fixture | path join 'future.showtree')
+'{format: show-tree, schema_version: 999, producer_version: 9.9.9, rows: [], lineage: []}' | %save --raw --force $future_path
+let future_error = try {
+    open $future_path | ignore
+    ''
+} catch {|err| $err.msg }
+assert ($future_error | str contains 'Unsupported .showtree schema version') 'A future .showtree schema was not rejected explicitly.'
 
 rm --recursive --force $fixture
 print 'Nushell structured-output tests passed.'
