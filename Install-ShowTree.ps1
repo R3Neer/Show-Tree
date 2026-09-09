@@ -18,6 +18,8 @@ $showTreeRoot = $PSScriptRoot
 $showTreePowerShell = Join-Path $showTreeRoot 'Show-Tree.ps1'
 $showTreeNushell = Join-Path $showTreeRoot 'show-tree.nu'
 $showTreeDisplay = Join-Path $showTreeRoot 'show-tree-display.nu'
+$showTreeFormat = Join-Path $showTreeRoot 'show-tree-format.nu'
+$showTreeSave = Join-Path $showTreeRoot 'show-tree-save.nu'
 $dependencyManifest = Join-Path $showTreeRoot 'dependencies.json'
 $r3cliPowerShellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\powershell'
 $r3cliNushellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\nushell\r3cli'
@@ -25,7 +27,7 @@ $r3cliPowerShell = Join-Path $r3cliPowerShellRoot 'R3CLI.psd1'
 
 $requiredPaths = @($dependencyManifest)
 if ($installPowerShell) { $requiredPaths += $showTreePowerShell }
-if ($installNushell) { $requiredPaths += @($showTreeNushell, $showTreeDisplay) }
+if ($installNushell) { $requiredPaths += @($showTreeNushell, $showTreeDisplay, $showTreeFormat, $showTreeSave) }
 
 foreach ($requiredPath in $requiredPaths) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
@@ -292,14 +294,17 @@ if ($installNushell) {
 
     $nuScriptPath = $showTreeNushell.Replace("\", "/").Replace("'", "''")
     $nuDisplayPath = $showTreeDisplay.Replace("\", "/").Replace("'", "''")
+    $nuFormatPath = $showTreeFormat.Replace("\", "/").Replace("'", "''")
+    $nuSavePath = $showTreeSave.Replace("\", "/").Replace("'", "''")
 
-    # Keep config.nu deliberately small. The display and save integration lives
-    # in a tested repository module rather than being injected as generated Nu.
+    # Keep config.nu deliberately small. Traversal, presentation, persistence and
+    # save dispatch live in tested modules rather than generated user config code.
     $nuProfileBlock = @(
         "# >>> Show-Tree >>>"
         "use '$nuScriptPath' [main show-tree-help tree]"
         "use '$nuDisplayPath'"
-        "use '$nuDisplayPath' save"
+        "use '$nuFormatPath' ['to showtree' 'from showtree']"
+        "use '$nuSavePath' save"
         ""
         "def help [...rest: string] {"
         "    if ((`$rest | length) == 1) and ((`$rest | first) == 'show-tree') {"
