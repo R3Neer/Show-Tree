@@ -30,7 +30,8 @@ def format-tree-size [value: any]: nothing -> string {
 
 
 # Exported because Nushell may store `display_output` as source text. The source
-# hook resolves this command when it is evaluated later by the REPL.
+# hook is parsed later by the REPL, so it must resolve these helpers through this
+# module's stable namespace rather than through the lexical imports from config.nu.
 export def show-tree-render-internal [rows: list<any>]: nothing -> nothing {
     let ui = (r3cli console --colour auto)
 
@@ -111,10 +112,11 @@ export-env {
         let previous_display_type = ($previous_display_output | describe)
 
         if $previous_display_type == 'string' {
-            # Preserve Nushell's string-hook contract. The helper commands keep
-            # this generated source short enough to audit and stable across upgrades.
+            # String hooks are parsed only when the REPL later displays a result.
+            # Module-qualified helper names survive that deferred parse; bare helper
+            # names do not, even though they were visible while config.nu loaded.
             let wrapped_display_source = (
-                "metadata access {|meta| if (show-tree-can-render-internal $meta $in) { show-tree-render-internal ($meta | get show_tree_render) } else { $in | do { "
+                "metadata access {|meta| if (show-tree-display show-tree-can-render-internal $meta $in) { show-tree-display show-tree-render-internal ($meta | get show_tree_render) } else { $in | do { "
                 + $previous_display_output
                 + " } } }"
             )
