@@ -66,6 +66,7 @@ def main() -> None:
     alpha = fixture / "alpha"
     beta = fixture / "beta"
     empty = fixture / "empty"
+    snapshot = fixture / "snapshot.showtree"
     alpha.mkdir()
     beta.mkdir()
     empty.mkdir()
@@ -74,6 +75,7 @@ def main() -> None:
     (beta / "beta.txt").write_text("a much larger child", encoding="utf-8")
 
     fixture_nu = fixture.as_posix().replace("'", "''")
+    snapshot_nu = snapshot.as_posix().replace("'", "''")
 
     child = pexpect.spawn(
         "nu",
@@ -140,6 +142,37 @@ def main() -> None:
         assert_tree(sibling_sort, "A sibling-sorted Show-Tree result")
         if sibling_sort.find("beta") > sibling_sort.find("alpha"):
             raise AssertionError(f"Sibling sort order was not preserved under the root:\n{sibling_sort}")
+
+        # Saving as .showtree persists native rows rather than the human drawing.
+        # Reopening the file in a fresh REPL expression restores metadata strongly
+        # enough for the normal display hook to render it immediately as a tree.
+        saved = run_marked(
+            child,
+            f"show-tree '{fixture_nu}' -d 2 -l | save --force '{snapshot_nu}'; print 'saved'",
+            "__SHOW_TREE_SNAPSHOT_SAVE__",
+        )
+        if "saved" not in saved:
+            raise AssertionError(f"Saving .showtree did not complete:\n{saved}")
+
+        reopened = run_marked(
+            child,
+            f"open '{snapshot_nu}'",
+            "__SHOW_TREE_SNAPSHOT_OPEN__",
+        )
+        assert_tree(reopened, "An opened .showtree snapshot")
+        if "nested.txt" not in reopened or "beta.txt" not in reopened:
+            raise AssertionError(f"Opened .showtree snapshot lost descendants:\n{reopened}")
+
+        reopened_filtered = run_marked(
+            child,
+            f"open '{snapshot_nu}' | where name in [alpha nested.txt]",
+            "__SHOW_TREE_SNAPSHOT_FILTERED__",
+        )
+        assert_tree(reopened_filtered, "A filtered opened .showtree snapshot")
+        if alpha.as_posix() not in reopened_filtered or "nested.txt" not in reopened_filtered:
+            raise AssertionError(f"Filtered .showtree snapshot lost retained nodes:\n{reopened_filtered}")
+        if "beta" in reopened_filtered:
+            raise AssertionError(f"Filtered .showtree snapshot reintroduced a removed node:\n{reopened_filtered}")
 
         # Explicit table is the intentional escape hatch from the tree renderer.
         explicit_table = run_marked(
