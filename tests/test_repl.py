@@ -114,18 +114,23 @@ def main() -> None:
         assert_tree(filtered_last, "$ans.last after filtering")
 
         # Global sort order is advisory for hierarchy: parents must still precede
-        # descendants. Within a sibling group, the transformed order is preserved.
+        # descendants. When the original root remains visible, child directories
+        # are displayed by basename, not by full path.
         sorted_tree = run_marked(
             child,
             f"show-tree '{fixture_nu}' -d 2 -l | sort-by size",
             "__SHOW_TREE_SORTED__",
         )
         assert_tree(sorted_tree, "A size-sorted Show-Tree result")
-        for parent, descendant in ((alpha.as_posix(), "nested.txt"), (beta.as_posix(), "beta.txt")):
-            if parent not in sorted_tree or descendant not in sorted_tree:
-                raise AssertionError(f"Sorted tree lost {parent!r} or {descendant!r}:\n{sorted_tree}")
-            if sorted_tree.find(parent) > sorted_tree.find(descendant):
-                raise AssertionError(f"Sorted descendant appeared before parent {parent!r}:\n{sorted_tree}")
+        for parent_label, descendant in (("alpha", "nested.txt"), ("beta", "beta.txt")):
+            if parent_label not in sorted_tree or descendant not in sorted_tree:
+                raise AssertionError(
+                    f"Sorted tree lost {parent_label!r} or {descendant!r}:\n{sorted_tree}"
+                )
+            if sorted_tree.find(parent_label) > sorted_tree.find(descendant):
+                raise AssertionError(
+                    f"Sorted descendant appeared before parent {parent_label!r}:\n{sorted_tree}"
+                )
 
         sibling_sort = run_marked(
             child,
