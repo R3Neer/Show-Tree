@@ -4,8 +4,9 @@ const SHOW_TREE = (path self ../src/nushell/show-tree.nu)
 use $SHOW_TREE [main]
 
 # This benchmark measures filesystem traversal/normalization rather than the
-# renderer. A wide directory is deliberate: before indexing visible child names,
-# Windows default visibility performed a linear name lookup for every child.
+# renderer. A wide directory is deliberate because it makes Windows hidden-name
+# visibility costs easy to measure when evaluating traversal changes. It remains
+# in CI even though the attempted visible-name index was rejected as slower.
 let fixture = ($nu.temp-dir | path join 'show-tree-traversal-perf')
 rm --recursive --force $fixture
 mkdir $fixture
