@@ -37,6 +37,9 @@ assert equal ($short_rows | where type == file | length) 0 '--short should suppr
 assert (($short_rows | where type == dir | length) >= 4) '--short should keep the recursive directory tree.'
 assert (($short_rows | first | get size | into int) > 0) '--short directory sizes should still account for visible files.'
 
+let explicit_file = ($fixture | path join 'root.txt')
+assert equal (show-tree $explicit_file --short | length) 0 '--short should suppress an explicitly targeted file root too.'
+
 # Explicit filters must still work with the new default/short/all policy.
 let depth_limited = (show-tree $fixture --max-depth 1)
 assert ('deep.txt' not-in ($depth_limited | get name)) '--max-depth stopped limiting traversal.'
