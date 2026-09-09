@@ -23,10 +23,9 @@ const HELP_CATALOGUE = {
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'Nushell output is a flat native table with path, type and size columns.'
+        'Nushell output is a flat native table with name, type, size and path columns.'
         'Direct interactive results are rendered as the R3CLI tree by the installed display integration.'
         'Pipe to table, to json, where, sort-by or any other Nushell command to work with rows directly.'
-        'Use path basename when a command needs only the final filesystem name.'
         'Long controls file-row visibility; traversal still gathers files to calculate sizes and empty folders.'
     ]
     examples: [
@@ -283,11 +282,10 @@ export def main [
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
-    # The public value is deliberately narrow enough for Nushell's ordinary
-    # table renderer at normal terminal widths. `path` already contains the
-    # basename, so a separate public `name` column only duplicated information
-    # while forcing useful columns out of narrow tables.
-    let result = ($render_rows | select path type size)
+    # Public rows keep the semantic basename alongside the full path. Nushell's
+    # ordinary table renderer may trim very long paths to terminal width, but it
+    # no longer has to summarize descendants as nested [table N rows] values.
+    let result = ($render_rows | select name type size path)
 
     if $redirected {
         $result
