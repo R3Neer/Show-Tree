@@ -61,6 +61,10 @@ jobs:
         with:
           version: '0.115.1'
 
+      - name: Test Nushell Windows hidden attributes
+        shell: pwsh
+        run: nu Show-Tree/tests/Nushell.WindowsHidden.nu
+
       - name: Test complete default PowerShell traversal
         shell: pwsh
         run: ./Show-Tree/tests/PowerShell.DefaultComplete.ps1
@@ -134,6 +138,7 @@ jobs:
           if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
           if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
           if not ($human_text | str contains 'README.md') { error make { msg: 'installed human tree omitted files by default' } }
+          if ($human_text | str contains 'Hidden entries are omitted') { error make { msg: 'installed human-tree save leaked the interactive hidden-entry reminder' } }
 
           let snapshot = ($nu.temp-dir | path join 'show-tree-installed.showtree')
           show-tree Show-Tree -d 1 | save --force $snapshot
@@ -167,6 +172,7 @@ jobs:
           if ($savedText -notmatch 'SHOW-TREE') { throw 'PowerShell pipeline did not receive the tree banner.' }
           if ($savedText -notmatch 'Total size') { throw 'PowerShell pipeline did not receive the tree footer.' }
           if ($savedText -notmatch 'README\.md') { throw 'PowerShell pipeline output omitted files by default.' }
+          if ($savedText -match 'Hidden entries are omitted') { throw 'PowerShell pipeline leaked the interactive hidden-entry reminder.' }
           if ($savedText.Contains([string][char]27)) { throw 'PowerShell pipeline output contains ANSI escape sequences.' }
 
       - name: Reinstall both integrations idempotently

@@ -176,9 +176,17 @@ def render-tree-with-ui [value: any, lineage: list<any>, ui: record]: nothing ->
 }
 
 
-export def show-tree-render-internal [value: any, lineage: list<any>]: nothing -> nothing {
+export def show-tree-render-internal [
+    value: any
+    lineage: list<any>
+    hidden_filtered: bool
+]: nothing -> nothing {
     let ui = (r3cli console --colour auto)
     render-tree-with-ui $value $lineage $ui
+
+    if $hidden_filtered {
+        r3cli status $ui warning 'Hidden entries are omitted. Use --all (-a) to include them.'
+    }
 }
 
 
@@ -263,7 +271,7 @@ export-env {
 
         if $previous_display_type == 'string' {
             let wrapped_display_source = (
-                "metadata access {|meta| if (show-tree-display show-tree-can-render-internal $meta $in) { show-tree-display show-tree-render-internal $in ($meta | get show_tree_render) } else { $in | do { "
+                "metadata access {|meta| if (show-tree-display show-tree-can-render-internal $meta $in) { show-tree-display show-tree-render-internal $in ($meta | get show_tree_render) (($meta | get --optional show_tree_hidden_filtered) | default false) } else { $in | do { "
                 + $previous_display_output
                 + " } } }"
             )
@@ -272,7 +280,7 @@ export-env {
             $env.config.hooks.display_output = {
                 metadata access {|meta|
                     if (show-tree-can-render-internal $meta $in) {
-                        show-tree-render-internal $in ($meta | get show_tree_render)
+                        show-tree-render-internal $in ($meta | get show_tree_render) (($meta | get --optional show_tree_hidden_filtered) | default false)
                     } else if $previous_display_output == null {
                         $in | table
                     } else {

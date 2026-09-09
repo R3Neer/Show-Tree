@@ -71,6 +71,7 @@ def main() -> None:
     beta.mkdir()
     empty.mkdir()
     (fixture / "root.txt").write_text("abc", encoding="utf-8")
+    (fixture / ".hidden.txt").write_text("hidden", encoding="utf-8")
     (alpha / "nested.txt").write_text("hello", encoding="utf-8")
     (beta / "beta.txt").write_text("a much larger child", encoding="utf-8")
 
@@ -91,10 +92,25 @@ def main() -> None:
 
         rendered = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l",
+            f"show-tree '{fixture_nu}' -d 2",
             "__SHOW_TREE_DIRECT__",
         )
         assert_tree(rendered, "A direct Show-Tree call")
+        if "Hidden entries are omitted" not in rendered:
+            raise AssertionError(f"Default interactive tree did not show the hidden-entry reminder:\n{rendered}")
+        if ".hidden.txt" in rendered:
+            raise AssertionError(f"Default interactive tree exposed a hidden entry:\n{rendered}")
+
+        all_rendered = run_marked(
+            child,
+            f"show-tree '{fixture_nu}' -d 2 --all",
+            "__SHOW_TREE_ALL__",
+        )
+        assert_tree(all_rendered, "A Show-Tree --all call")
+        if ".hidden.txt" not in all_rendered:
+            raise AssertionError(f"--all did not render the hidden entry:\n{all_rendered}")
+        if "Hidden entries are omitted" in all_rendered:
+            raise AssertionError(f"--all still showed the hidden-entry reminder:\n{all_rendered}")
 
         repeated = run_marked(child, "$ans.last", "__SHOW_TREE_LAST__")
         assert_tree(repeated, "$ans.last")
@@ -103,7 +119,7 @@ def main() -> None:
         # to a visual root, while nested.txt remains its child.
         filtered = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | where name in [alpha nested.txt]",
+            f"show-tree '{fixture_nu}' -d 2 | where name in [alpha nested.txt]",
             "__SHOW_TREE_FILTERED__",
         )
         assert_tree(filtered, "A filtered Show-Tree result")
@@ -111,6 +127,8 @@ def main() -> None:
             raise AssertionError(f"Filtered tree lost retained nodes:\n{filtered}")
         if filtered.find(alpha.as_posix()) > filtered.find("nested.txt"):
             raise AssertionError(f"Filtered child appeared before its promoted parent:\n{filtered}")
+        if "Hidden entries are omitted" not in filtered:
+            raise AssertionError(f"Filtered tree lost the hidden-entry reminder metadata:\n{filtered}")
 
         filtered_last = run_marked(child, "$ans.last", "__SHOW_TREE_FILTERED_LAST__")
         assert_tree(filtered_last, "$ans.last after filtering")
@@ -120,7 +138,7 @@ def main() -> None:
         # are displayed by basename, not by full path.
         sorted_tree = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | sort-by size",
+            f"show-tree '{fixture_nu}' -d 2 | sort-by size",
             "__SHOW_TREE_SORTED__",
         )
         assert_tree(sorted_tree, "A size-sorted Show-Tree result")
@@ -136,19 +154,30 @@ def main() -> None:
 
         sibling_sort = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | where type == 'dir' | sort-by size --reverse",
+            f"show-tree '{fixture_nu}' -d 2 | where type == 'dir' | sort-by size --reverse",
             "__SHOW_TREE_SIBLINGS__",
         )
         assert_tree(sibling_sort, "A sibling-sorted Show-Tree result")
         if sibling_sort.find("beta") > sibling_sort.find("alpha"):
             raise AssertionError(f"Sibling sort order was not preserved under the root:\n{sibling_sort}")
 
+        short_tree = run_marked(
+            child,
+            f"show-tree '{fixture_nu}' -d 2 --short",
+            "__SHOW_TREE_SHORT__",
+        )
+        assert_tree(short_tree, "A Show-Tree --short call")
+        if "root.txt" in short_tree or "nested.txt" in short_tree or "beta.txt" in short_tree:
+            raise AssertionError(f"--short rendered file rows:\n{short_tree}")
+        if "alpha" not in short_tree or "beta" not in short_tree:
+            raise AssertionError(f"--short lost directory rows:\n{short_tree}")
+
         # Saving as .showtree persists native rows rather than the human drawing.
         # Reopening the file in a fresh REPL expression restores metadata strongly
         # enough for the normal display hook to render it immediately as a tree.
         saved = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | save --force '{snapshot_nu}'; print 'saved'",
+            f"show-tree '{fixture_nu}' -d 2 | save --force '{snapshot_nu}'; print 'saved'",
             "__SHOW_TREE_SNAPSHOT_SAVE__",
         )
         if "saved" not in saved:
@@ -177,7 +206,7 @@ def main() -> None:
         # Explicit table is the intentional escape hatch from the tree renderer.
         explicit_table = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | table",
+            f"show-tree '{fixture_nu}' -d 2 | table",
             "__SHOW_TREE_TABLE__",
         )
         if "╭" not in explicit_table:
@@ -199,7 +228,7 @@ def main() -> None:
         # so the normal Nu display hook takes over automatically.
         reduced = run_marked(
             child,
-            f"show-tree '{fixture_nu}' -d 2 -l | select name size",
+            f"show-tree '{fixture_nu}' -d 2 | select name size",
             "__SHOW_TREE_REDUCED__",
         )
         if "SHOW-TREE" in reduced or "╭" not in reduced:
