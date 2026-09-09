@@ -57,6 +57,7 @@ export def show-tree-help [] {
 def run-du [
     paths: list<any>
     deref: bool
+    all: bool
     exclude: any
     max_depth: any
     min_size: any
@@ -64,39 +65,66 @@ def run-du [
     let actual_paths = if ($paths | is-empty) { [(pwd)] } else { $paths }
     let min_bytes = if $min_size == null { null } else { $min_size | into int }
 
-    # Always ask du for hidden entries. Show-Tree applies its own visibility policy
-    # afterwards so --all changes the public tree without relying on switch-binding
-    # details of the backend command.
+    # `--all` is a switch on Nushell's du. Passing `--all=false` still supplies the
+    # switch, so branch explicitly and omit it entirely for the default visible-only
+    # traversal.
     if $exclude == null {
         if $max_depth == null {
             if $min_bytes == null {
-                return (%du ...$actual_paths --long --deref=$deref --all)
+                if $all {
+                    return (%du ...$actual_paths --long --deref=$deref --all)
+                }
+                return (%du ...$actual_paths --long --deref=$deref)
             }
-            return (%du ...$actual_paths --long --deref=$deref --all --min-size $min_bytes)
+
+            if $all {
+                return (%du ...$actual_paths --long --deref=$deref --all --min-size $min_bytes)
+            }
+            return (%du ...$actual_paths --long --deref=$deref --min-size $min_bytes)
         }
 
         if $min_bytes == null {
-            return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth)
+            if $all {
+                return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth)
+            }
+            return (%du ...$actual_paths --long --deref=$deref --max-depth $max_depth)
         }
 
-        return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth --min-size $min_bytes)
+        if $all {
+            return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth --min-size $min_bytes)
+        }
+        return (%du ...$actual_paths --long --deref=$deref --max-depth $max_depth --min-size $min_bytes)
     }
 
     if $max_depth == null {
         if $min_bytes == null {
-            return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude)
+            if $all {
+                return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude)
+            }
+            return (%du ...$actual_paths --long --deref=$deref --exclude $exclude)
         }
-        return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --min-size $min_bytes)
+
+        if $all {
+            return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --min-size $min_bytes)
+        }
+        return (%du ...$actual_paths --long --deref=$deref --exclude $exclude --min-size $min_bytes)
     }
 
     if $min_bytes == null {
-        return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth)
+        if $all {
+            return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth)
+        }
+        return (%du ...$actual_paths --long --deref=$deref --exclude $exclude --max-depth $max_depth)
     }
 
-    %du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth --min-size $min_bytes
+    if $all {
+        return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth --min-size $min_bytes)
+    }
+
+    %du ...$actual_paths --long --deref=$deref --exclude $exclude --max-depth $max_depth --min-size $min_bytes
 }
 
-def normalize-du-node [entry: record, all: bool] {
+def normalize-du-node [entry: record] {
     let full_path = ($entry.path | path expand)
     let path_kind = ($full_path | path type)
 
@@ -113,15 +141,13 @@ def normalize-du-node [entry: record, all: bool] {
 
     let directories = (
         ($entry | get --optional directories | default [])
-        | where {|child| $all or (not (($child.path | path basename) | str starts-with '.')) }
-        | each {|child| normalize-du-node $child $all }
+        | each {|child| normalize-du-node $child }
         | sort-by name --ignore-case
     )
 
     let files = (
         ($entry | get --optional files | default [])
-        | where {|child| $all or (not (($child.path | path basename) | str starts-with '.')) }
-        | each {|child| normalize-du-node $child $all }
+        | each {|child| normalize-du-node $child }
         | sort-by name --ignore-case
     )
 
@@ -230,11 +256,11 @@ export def main [
         error make { msg: 'MinSize cannot be negative.' }
     }
 
-    let raw = (run-du $path $deref $exclude $max_depth $min_size)
+    let raw = (run-du $path $deref $all $exclude $max_depth $min_size)
 
     let roots = (
         $raw
-        | each {|entry| normalize-du-node $entry $all }
+        | each {|entry| normalize-du-node $entry }
         | sort-by full_name --ignore-case
     )
 
