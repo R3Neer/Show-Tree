@@ -258,8 +258,6 @@ export def main [
     --hide-empty-folders (-e)
     ...path: glob
 ] {
-    let redirected = (is-redirected)
-
     if $max_depth != null and $max_depth < 0 {
         error make { msg: 'MaxDepth cannot be negative.' }
     }
@@ -286,16 +284,15 @@ export def main [
     # ordinary table renderer may trim very long paths to terminal width, but it
     # no longer has to summarize descendants as nested [table N rows] values.
     let result = ($render_rows | select name type size path)
+    let render_snapshot = $render_rows
 
-    if $redirected {
-        $result
-    } else {
-        let render_snapshot = $render_rows
-        $result | metadata set {||
-            merge {
-                show_tree_result: true
-                show_tree_render: $render_snapshot
-            }
+    # Always attach presentation metadata to the native value. Direct REPL calls
+    # need it for the R3CLI tree; pipelines are still ordinary Nu because explicit
+    # renderers consume it and transformed values are checked before redraw.
+    $result | metadata set {||
+        merge {
+            show_tree_result: true
+            show_tree_render: $render_snapshot
         }
     }
 }
