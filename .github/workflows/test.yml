@@ -34,6 +34,9 @@ jobs:
       - name: Test native pipeline output and showtree persistence
         run: nu Show-Tree/tests/Nushell.Structured.nu
 
+      - name: Test raw and builtin showtree save contract
+        run: nu Show-Tree/tests/Nushell.ShowtreeRaw.nu
+
       - name: Test direct rendering path
         run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
 
