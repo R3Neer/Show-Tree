@@ -232,21 +232,26 @@ def decode-input [value: any]: nothing -> string {
 }
 
 
+export def showtree-serialize-internal [value: any, meta: record]: nothing -> string {
+    let rows = (as-row-list $value)
+    validate-source $meta $rows
+
+    let source_lineage = ($meta | get show_tree_render)
+    let lineage = (snapshot-lineage $rows $source_lineage)
+
+    {
+        format: $FORMAT_NAME
+        schema_version: $SCHEMA_VERSION
+        producer_version: $PRODUCER_VERSION
+        rows: $rows
+        lineage: $lineage
+    } | to nuon
+}
+
+
 export def 'to showtree' []: any -> string {
     metadata access {|meta|
-        let rows = (as-row-list $in)
-        validate-source $meta $rows
-
-        let source_lineage = ($meta | get show_tree_render)
-        let lineage = (snapshot-lineage $rows $source_lineage)
-
-        {
-            format: $FORMAT_NAME
-            schema_version: $SCHEMA_VERSION
-            producer_version: $PRODUCER_VERSION
-            rows: $rows
-            lineage: $lineage
-        } | to nuon
+        showtree-serialize-internal $in $meta
     }
 }
 
