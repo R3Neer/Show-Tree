@@ -3,8 +3,8 @@ use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '0.1.3'
-    description: 'Displays a complete size-aware filesystem tree by default, with optional filters.'
+    version: '0.1.4'
+    description: 'Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters.'
     invocation: 'show-tree'
     groups: []
     commands: []
@@ -14,16 +14,18 @@ const HELP_CATALOGUE = {
     'global-items': [
         { label: 'path', description: 'Starting path(s). Defaults to the current directory.' }
         { label: '-r, --deref / -Dereference', description: 'Use target metadata for symbolic-link sizes.' }
-        { label: '-l, --long / -Long', description: 'Compatibility flag. Files are already included by default.' }
+        { label: '-s, --short / -Short', description: 'Show directories only; directory sizes still include visible files.' }
         { label: '-x, --exclude / -Exclude', description: 'Exclude matching file paths.' }
         { label: '-d, --max-depth / -MaxDepth', description: 'Limit directory recursion. By default recursion is unbounded.' }
         { label: '-m, --min-size / -MinSize', description: 'Exclude files below this logical size.' }
-        { label: '-a, --all / -All', description: 'Compatibility flag. Hidden and dot-prefixed entries are already included by default.' }
+        { label: '-a, --all / -All', description: 'Include hidden and dot-prefixed entries.' }
         { label: '-e, --hide-empty-folders / -HideEmptyFolders', description: 'Hide directories with no included files.' }
         { label: '-h, --help / -Help', description: 'Show this help and skip traversal.' }
     ]
     notes: [
-        'With no filters, Show-Tree includes files, directories, hidden entries and dot-prefixed entries recursively without a depth limit.'
+        'Files and directories are shown recursively without a depth limit by default.'
+        'Hidden and dot-prefixed entries are omitted unless --all / -a is used; the interactive tree shows a reminder when they are omitted.'
+        'The hidden-entry reminder is presentation-only and is not written by tree-aware save.'
         'Nushell output is one flat native row per visible node: name, type, size, children and path.'
         'children is a flat list of direct child names, never nested child records.'
         'Representable filtered, sorted and sliced results keep the R3CLI tree as their automatic REPL view.'
@@ -33,7 +35,8 @@ const HELP_CATALOGUE = {
     ]
     examples: [
         'show-tree'
-        'show-tree D:/Tools'
+        'show-tree D:/Tools --all'
+        'show-tree . --short'
         'show-tree . -d 2'
         'show-tree . -x *.tmp'
         'show-tree . -m 10mb -e'
@@ -54,6 +57,7 @@ export def show-tree-help [] {
 def run-du [
     paths: list<any>
     deref: bool
+    all: bool
     exclude: any
     max_depth: any
     min_size: any
@@ -64,30 +68,30 @@ def run-du [
     if $exclude == null {
         if $max_depth == null {
             if $min_bytes == null {
-                return (%du ...$actual_paths --long --deref=$deref --all)
+                return (%du ...$actual_paths --long --deref=$deref --all=$all)
             }
-            return (%du ...$actual_paths --long --deref=$deref --all --min-size $min_bytes)
+            return (%du ...$actual_paths --long --deref=$deref --all=$all --min-size $min_bytes)
         }
 
         if $min_bytes == null {
-            return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth)
+            return (%du ...$actual_paths --long --deref=$deref --all=$all --max-depth $max_depth)
         }
 
-        return (%du ...$actual_paths --long --deref=$deref --all --max-depth $max_depth --min-size $min_bytes)
+        return (%du ...$actual_paths --long --deref=$deref --all=$all --max-depth $max_depth --min-size $min_bytes)
     }
 
     if $max_depth == null {
         if $min_bytes == null {
-            return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude)
+            return (%du ...$actual_paths --long --deref=$deref --all=$all --exclude $exclude)
         }
-        return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --min-size $min_bytes)
+        return (%du ...$actual_paths --long --deref=$deref --all=$all --exclude $exclude --min-size $min_bytes)
     }
 
     if $min_bytes == null {
-        return (%du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth)
+        return (%du ...$actual_paths --long --deref=$deref --all=$all --exclude $exclude --max-depth $max_depth)
     }
 
-    %du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth --min-size $min_bytes
+    %du ...$actual_paths --long --deref=$deref --all=$all --exclude $exclude --max-depth $max_depth --min-size $min_bytes
 }
 
 def normalize-du-node [entry: record] {
@@ -131,13 +135,13 @@ def normalize-du-node [entry: record] {
     }
 }
 
-def visible-children [node: record, hide_empty_folders: bool] {
+def visible-children [node: record, short: bool, hide_empty_folders: bool] {
     $node.children
     | where {|child|
         if $child.kind == 'Folder' {
             (not $hide_empty_folders) or $child.has_files
         } else {
-            true
+            not $short
         }
     }
 }
@@ -158,9 +162,9 @@ def to-lineage-row [node: record, parent_path: any, child_names: list<string>]: 
     }
 }
 
-def flatten-child [node: record, hide_empty_folders: bool, parent_path: string]: nothing -> list<record> {
+def flatten-child [node: record, short: bool, hide_empty_folders: bool, parent_path: string]: nothing -> list<record> {
     let children = if $node.kind == 'Folder' {
-        visible-children $node $hide_empty_folders
+        visible-children $node $short $hide_empty_folders
     } else {
         []
     }
@@ -174,16 +178,16 @@ def flatten-child [node: record, hide_empty_folders: bool, parent_path: string]:
 
     let descendants = (
         $children
-        | each {|child| flatten-child $child $hide_empty_folders $node.full_name }
+        | each {|child| flatten-child $child $short $hide_empty_folders $node.full_name }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
     [$row ...$descendants]
 }
 
-def flatten-root [root: record, hide_empty_folders: bool]: nothing -> list<record> {
+def flatten-root [root: record, short: bool, hide_empty_folders: bool]: nothing -> list<record> {
     let children = if $root.kind == 'Folder' {
-        visible-children $root $hide_empty_folders
+        visible-children $root $short $hide_empty_folders
     } else {
         []
     }
@@ -197,7 +201,7 @@ def flatten-root [root: record, hide_empty_folders: bool]: nothing -> list<recor
 
     let descendants = (
         $children
-        | each {|child| flatten-child $child $hide_empty_folders $root.full_name }
+        | each {|child| flatten-child $child $short $hide_empty_folders $root.full_name }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
@@ -206,7 +210,7 @@ def flatten-root [root: record, hide_empty_folders: bool]: nothing -> list<recor
 
 export def main [
     --deref (-r)
-    --long (-l)
+    --short (-s)
     --exclude (-x): glob
     --max-depth (-d): int
     --min-size (-m): filesize
@@ -222,9 +226,7 @@ export def main [
         error make { msg: 'MinSize cannot be negative.' }
     }
 
-    # --long and --all remain accepted for backwards compatibility. Since 0.1.3,
-    # their historical behavior is the default: complete recursive output.
-    let raw = (run-du $path $deref $exclude $max_depth $min_size)
+    let raw = (run-du $path $deref $all $exclude $max_depth $min_size)
 
     let roots = (
         $raw
@@ -234,17 +236,19 @@ export def main [
 
     let lineage = (
         $roots
-        | each {|root| flatten-root $root $hide_empty_folders }
+        | each {|root| flatten-root $root $short $hide_empty_folders }
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
     let result = ($lineage | select name type size children path)
     let render_lineage = $lineage
+    let hidden_filtered = (not $all)
 
     $result | metadata set {||
         merge {
             show_tree_result: true
             show_tree_render: $render_lineage
+            show_tree_hidden_filtered: $hidden_filtered
         }
     }
 }
