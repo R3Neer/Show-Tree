@@ -30,15 +30,21 @@ def read_to_prompt(child: pexpect.spawn) -> str:
     return expect_while_answering_cpr(child, PROMPT)
 
 
-def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
-    """Execute one REPL line and collect everything after an execution marker.
+def submit(child: pexpect.spawn, command: str) -> None:
+    """Submit one line as a terminal Enter key, not as a Unix LF.
 
-    Reedline can repaint the prompt while Enter is being handled, so waiting for
-    the next prompt alone can race with execution. A marker printed by the command
-    itself gives us an unambiguous point after evaluation has actually started and,
-    unlike waiting for the expected UI text, also exposes parse/runtime errors.
+    Reedline runs the terminal in raw mode. A real Enter key arrives as carriage
+    return; pexpect.sendline() sends LF on Linux, which can leave the command sitting
+    in the editor without executing it. That made earlier UI tests diagnose a
+    display-hook timeout when the REPL had simply never received Enter. Delightful.
     """
-    child.sendline(f"print '{marker}'; {command}")
+    child.send(command)
+    child.send("\r")
+
+
+def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
+    """Execute one REPL line and collect everything after an execution marker."""
+    submit(child, f"print '{marker}'; {command}")
     output = expect_while_answering_cpr(child, marker)
     output += read_to_prompt(child)
     return output
@@ -106,7 +112,7 @@ def main() -> None:
                 "Show-Tree's display hook did not preserve the previous/default table renderer."
             )
 
-        child.sendline("exit")
+        submit(child, "exit")
         child.expect(pexpect.EOF)
     finally:
         if child.isalive():
