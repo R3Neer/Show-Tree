@@ -303,5 +303,6 @@ if ($installNushell) {
     if (Test-Path -LiteralPath ($nuConfigPath + '.show-tree.bak')) {
         Write-Host "Nushell config backup: $($nuConfigPath + '.show-tree.bak')"
     }
-    Write-Host "Open a new Nushell session to load Show-Tree."
+    Write-Host "The calling Nushell process cannot be hot-reloaded by this installer."
+    Write-Host "Close it and open a new Nushell session before testing the updated Show-Tree command."
 }
