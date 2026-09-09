@@ -25,11 +25,18 @@ jobs:
 
       - name: Syntax-check Nushell modules and installer
         run: |
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-display.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-format.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-save.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-display.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-format.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/show-tree-save.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check Show-Tree/install-show-tree.nu | if not $in { exit 1 }'
+
+      - name: Test complete default traversal
+        run: nu Show-Tree/tests/Nushell.DefaultComplete.nu
 
       - name: Test native pipeline output and showtree persistence
         run: nu Show-Tree/tests/Nushell.Structured.nu
@@ -38,7 +45,7 @@ jobs:
         run: nu Show-Tree/tests/Nushell.ShowtreeRaw.nu
 
       - name: Test direct rendering path
-        run: nu --no-config-file -c 'use Show-Tree/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
+        run: nu --no-config-file -c 'use Show-Tree/src/nushell/show-tree.nu [main]; show-tree Show-Tree -d 0 | ignore'
 
       - name: Test direct REPL result, ans and showtree reopening
         run: |
@@ -57,6 +64,10 @@ jobs:
         uses: hustcer/setup-nu@v3
         with:
           version: '0.115.1'
+
+      - name: Test complete default PowerShell traversal
+        shell: pwsh
+        run: ./Show-Tree/tests/PowerShell.DefaultComplete.ps1
 
       - name: Reject a corrupted vendored dependency
         shell: pwsh
@@ -102,6 +113,7 @@ jobs:
           if (($text | Select-String -Pattern '# <<< Show-Tree <<<' -AllMatches).Matches.Count -ne 1) { throw 'Expected one Show-Tree end marker.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_BEFORE') -gt $text.IndexOf('# >>> Show-Tree >>>')) { throw 'Installer moved the Show-Tree block ahead of preceding config.' }
           if ($text.IndexOf('SHOW_TREE_SENTINEL_AFTER') -lt $text.IndexOf('# <<< Show-Tree <<<')) { throw 'Installer moved the Show-Tree block behind following config.' }
+          if ($text -notmatch 'src/nushell/show-tree\.nu') { throw 'Installer did not point at the organized Nushell source tree.' }
           if ($text -notmatch 'show-tree-format\.nu') { throw 'Installer did not import the .showtree format module.' }
           if ($text -notmatch "'to showtree'") { throw 'Installer did not import to showtree.' }
           if ($text -notmatch "'from showtree'") { throw 'Installer did not import from showtree.' }
@@ -116,23 +128,23 @@ jobs:
           if $env.SHOW_TREE_SENTINEL_BEFORE != 'before' or $env.SHOW_TREE_SENTINEL_AFTER != 'after' {
               error make { msg: 'surrounding config did not load' }
           }
-          show-tree Show-Tree -d 0 | get 0.type | print
+          let installed_rows = (show-tree Show-Tree -d 1)
+          if (($installed_rows | where type == file | is-empty)) { error make { msg: 'installed default Show-Tree still omitted files' } }
 
           let human = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
-          show-tree Show-Tree -d 1 | save --force $human
+          $installed_rows | save --force $human
           let human_text = (open --raw $human | ansi strip)
           if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
           if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
 
           let snapshot = ($nu.temp-dir | path join 'show-tree-installed.showtree')
-          show-tree Show-Tree -d 1 -l | save --force $snapshot
+          show-tree Show-Tree -d 1 | save --force $snapshot
           let raw_snapshot = (open --raw $snapshot)
           if not ($raw_snapshot | str contains 'schema_version') { error make { msg: 'installed .showtree snapshot is not versioned' } }
           if not ($raw_snapshot | str contains 'lineage') { error make { msg: 'installed .showtree snapshot lost lineage' } }
           let snapshot_meta = (open $snapshot | metadata)
           if (($snapshot_meta.show_tree_result? | default false) != true) { error make { msg: 'open .showtree did not restore Show-Tree metadata' } }
           if (($snapshot_meta.show_tree_render? | default [] | is-empty)) { error make { msg: 'open .showtree did not restore lineage metadata' } }
-          open $snapshot | get 0.type | print
 
           rm --force $human
           rm --force $snapshot
