@@ -39,20 +39,19 @@ def submit(child: pexpect.spawn, command: str) -> None:
 
 
 def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
-    """Execute one REPL line and collect everything after an execution marker.
+    """Execute one REPL line and return only output produced after its marker.
 
-    Reedline redraws every typed character, so the complete marker must not occur
-    literally in the submitted source. Split it into two string literals and only
-    join it at execution time; then pexpect can distinguish command execution from
-    an editor repaint.
+    Reedline redraws the command while it is being typed. The marker is split in
+    the submitted source so it can occur only after execution, then all repaint
+    noise before that marker is discarded. Assertions therefore inspect rendered
+    command output rather than the editor's copy of paths and arguments.
     """
     midpoint = len(marker) // 2
     left = marker[:midpoint]
     right = marker[midpoint:]
     submit(child, f"print ('{left}' + '{right}'); {command}")
-    output = expect_while_answering_cpr(child, marker)
-    output += read_to_prompt(child)
-    return output
+    expect_while_answering_cpr(child, marker)
+    return read_to_prompt(child)
 
 
 def assert_tree(output: str, context: str) -> None:
