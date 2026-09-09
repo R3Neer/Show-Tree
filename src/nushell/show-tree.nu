@@ -96,6 +96,41 @@ def run-du [
     %du ...$actual_paths --long --deref=$deref --all --exclude $exclude --max-depth $max_depth --min-size $min_bytes
 }
 
+# Nushell's platform-native `ls` knows about the Windows Hidden file attribute,
+# while a dot-prefix check alone does not. On Windows, use its visible-name set as
+# an additional filter when --all is absent. Unix visibility remains the normal
+# dot-prefix rule without an extra directory enumeration.
+def platform-visible-child-names [directory: string, all: bool] {
+    if $all or $nu.os-info.name != 'windows' {
+        return null
+    }
+
+    try {
+        %ls --full-paths $directory
+        | get name
+        | each {|name| $name | path basename }
+    } catch {
+        []
+    }
+}
+
+def child-is-visible [child: record, all: bool, platform_visible_names: any] {
+    if $all {
+        return true
+    }
+
+    let name = ($child.path | path basename)
+    if ($name | str starts-with '.') {
+        return false
+    }
+
+    if $platform_visible_names == null {
+        return true
+    }
+
+    $name in $platform_visible_names
+}
+
 def normalize-du-node [entry: record, all: bool] {
     let full_path = ($entry.path | path expand)
     let path_kind = ($full_path | path type)
@@ -111,16 +146,18 @@ def normalize-du-node [entry: record, all: bool] {
         }
     }
 
+    let platform_visible_names = (platform-visible-child-names $full_path $all)
+
     let directories = (
         ($entry | get --optional directories | default [])
-        | where {|child| $all or (not (($child.path | path basename) | str starts-with '.')) }
+        | where {|child| child-is-visible $child $all $platform_visible_names }
         | each {|child| normalize-du-node $child $all }
         | sort-by name --ignore-case
     )
 
     let files = (
         ($entry | get --optional files | default [])
-        | where {|child| $all or (not (($child.path | path basename) | str starts-with '.')) }
+        | where {|child| child-is-visible $child $all $platform_visible_names }
         | each {|child| normalize-du-node $child $all }
         | sort-by name --ignore-case
     )
