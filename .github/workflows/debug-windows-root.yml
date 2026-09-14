@@ -1,0 +1,61 @@
+name: Debug Windows root
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/debug-windows-root.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - name: Check out Show-Tree
+        uses: actions/checkout@v5
+        with:
+          path: Show-Tree
+
+      - name: Set up Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.115.1'
+
+      - name: Inspect duplicate paths from C root
+        shell: pwsh
+        run: |
+          @'
+          const SHOW_TREE = (path self Show-Tree/src/nushell/show-tree.nu)
+          use $SHOW_TREE [main]
+
+          let rows = (show-tree C:/ --max-depth 1)
+          let duplicates = (
+              $rows
+              | group-by path
+              | transpose path rows
+              | where {|entry| ($entry.rows | length) > 1 }
+              | each {|entry|
+                  {
+                      path: $entry.path
+                      count: ($entry.rows | length)
+                      names: ($entry.rows | get name)
+                      types: ($entry.rows | get type)
+                  }
+              }
+          )
+
+          print $'ROW_COUNT=($rows | length)'
+          print ($duplicates | to json --indent 2)
+
+          if ($duplicates | is-empty) {
+              print 'NO_DUPLICATES'
+              exit 0
+          }
+
+          error make { msg: 'Windows root scan produced duplicate paths.' }
+          '@ | Set-Content -LiteralPath debug-windows-root.nu -Encoding utf8NoBOM
+
+          nu --no-config-file debug-windows-root.nu
