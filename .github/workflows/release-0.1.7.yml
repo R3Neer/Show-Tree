@@ -1,0 +1,116 @@
+name: Release 0.1.7
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-0.1.7.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: "${{ github.event.head_commit.message == 'release: publish 0.1.7 hotfix' }}"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.115.1'
+
+      - name: Prepare 0.1.7 metadata and release notes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('src/nushell/show-tree.nu'): ("version: '0.1.6'", "version: '0.1.7'"),
+              Path('src/nushell/show-tree-format.nu'): ("const PRODUCER_VERSION = '0.1.6'", "const PRODUCER_VERSION = '0.1.7'"),
+              Path('src/powershell/Show-Tree.ps1'): ('Version = "0.1.6"', 'Version = "0.1.7"'),
+              Path('README.md'): ('producer_version: 0.1.6', 'producer_version: 0.1.7'),
+          }
+
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one {old!r}, found {count}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
+          cat > docs/releases/0.1.7.md <<'EOF'
+          # Show-Tree 0.1.7
+
+          Show-Tree 0.1.7 is a Windows traversal hotfix for filesystem roots that contain compatibility junctions.
+
+          ## Fixed
+
+          - Fixes duplicate public `path` values when scanning Windows roots such as `C:/`.
+          - The issue affected junction-backed compatibility entries including paths that could normalize onto `C:\\Users` or `C:\\ProgramData`.
+          - Path normalization now uses `path expand --no-symlink`, preserving the lexical identity of junction entries instead of resolving them onto their targets.
+          - `.showtree` persistence therefore no longer fails with `Show-Tree row paths must be unique` for normal shallow Windows-root scans.
+
+          ## Regression coverage
+
+          - Adds a permanent Windows-root regression test.
+          - The test scans `C:/` with and without `--all`, asserts public path uniqueness, and verifies that the result can be serialized and reopened as `.showtree`.
+          - The fix was independently reproduced and validated on GitHub Actions Windows runners before this release was prepared.
+
+          ## Compatibility
+
+          - No command-line options change.
+          - The public Nushell row contract remains `name`, `type`, `size`, `children`, and `path`.
+          - `.showtree` remains schema version 1; `producer_version` advances to 0.1.7.
+          - PowerShell traversal semantics are unchanged apart from reporting version 0.1.7 in help output.
+          - This is a patch release over 0.1.6.
+          EOF
+
+      - name: Validate release working tree
+        shell: bash
+        run: |
+          nu --no-config-file -c 'nu-check --as-module src/nushell/show-tree.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module src/nushell/show-tree-display.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module src/nushell/show-tree-format.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module src/nushell/show-tree-save.nu | if not $in { exit 1 }'
+          nu --no-config-file tests/Nushell.DefaultComplete.nu
+          nu --no-config-file tests/Nushell.Structured.nu
+          nu --no-config-file tests/Nushell.Rendering.nu
+
+      - name: Commit release metadata and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md src/nushell/show-tree.nu src/nushell/show-tree-format.nu src/powershell/Show-Tree.ps1 docs/releases/0.1.7.md
+          git rm .github/workflows/release-0.1.7.yml
+          git commit -m 'chore: prepare 0.1.7 hotfix release'
+          git push origin HEAD:main
+          echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build release archive
+        shell: bash
+        run: |
+          git archive --format=zip --output Show-Tree-0.1.7.zip "$RELEASE_SHA"
+          sha256sum Show-Tree-0.1.7.zip | tee Show-Tree-0.1.7.zip.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create v0.1.7 \
+            Show-Tree-0.1.7.zip#'Show-Tree 0.1.7 source package' \
+            Show-Tree-0.1.7.zip.sha256#'SHA-256 checksum' \
+            --target "$RELEASE_SHA" \
+            --title 'Show-Tree 0.1.7 — Windows root junction hotfix' \
+            --notes-file docs/releases/0.1.7.md
