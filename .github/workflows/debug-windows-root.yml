@@ -24,12 +24,14 @@ jobs:
         with:
           version: '0.115.1'
 
-      - name: Inspect duplicate paths from C root
+      - name: Validate Windows root paths and snapshot serialization
         shell: pwsh
         run: |
           @'
           const SHOW_TREE = (path self Show-Tree/src/nushell/show-tree.nu)
+          const SHOW_TREE_FORMAT = (path self Show-Tree/src/nushell/show-tree-format.nu)
           use $SHOW_TREE [main]
+          use $SHOW_TREE_FORMAT ['to showtree']
 
           let rows = (show-tree C:/ --max-depth 1)
           let duplicates = (
@@ -50,12 +52,16 @@ jobs:
           print $'ROW_COUNT=($rows | length)'
           print ($duplicates | to json --indent 2)
 
-          if ($duplicates | is-empty) {
-              print 'NO_DUPLICATES'
-              exit 0
+          if not ($duplicates | is-empty) {
+              error make { msg: 'Windows root scan produced duplicate paths.' }
           }
 
-          error make { msg: 'Windows root scan produced duplicate paths.' }
+          let encoded = ($rows | to showtree)
+          if not ($encoded | str contains 'schema_version') {
+              error make { msg: 'Windows root rows did not serialize as .showtree.' }
+          }
+
+          print 'WINDOWS_ROOT_OK'
           '@ | Set-Content -LiteralPath debug-windows-root.nu -Encoding utf8NoBOM
 
           nu --no-config-file debug-windows-root.nu
