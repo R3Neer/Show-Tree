@@ -352,7 +352,11 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
 
 
 export-env {
-    let already_installed = ($env.SHOW_TREE_DISPLAY_HOOK_INSTALLED? | default false)
+    # This marker is a boolean only inside the Nushell process that installed the
+    # hook. When inherited by a child OS process it arrives as the string "true".
+    # Only a real boolean `true` means the hook is already installed in *this*
+    # process; inherited strings must trigger a fresh hook installation.
+    let already_installed = (($env.SHOW_TREE_DISPLAY_HOOK_INSTALLED? | default false) == true)
 
     if not $already_installed {
         let previous_display_output = ($env.config.hooks.display_output? | default null)
