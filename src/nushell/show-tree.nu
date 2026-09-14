@@ -132,7 +132,11 @@ def child-is-visible [child: record, all: bool, platform_visible_names: any] {
 }
 
 def normalize-du-node [entry: record, all: bool] {
-    let full_path = ($entry.path | path expand)
+    # Preserve the lexical identity of filesystem entries. Plain `path expand`
+    # resolves Windows junctions such as `C:\Documents and Settings` to their
+    # targets (`C:\Users`), which can collapse distinct directory entries onto
+    # the same public path and make `.showtree` snapshots ambiguous.
+    let full_path = ($entry.path | path expand --no-symlink)
     let path_kind = ($full_path | path type)
 
     if $path_kind != 'dir' {
