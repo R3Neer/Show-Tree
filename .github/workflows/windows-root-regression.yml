@@ -1,0 +1,36 @@
+name: Windows root regression
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/nushell/show-tree.nu'
+      - 'src/nushell/show-tree-format.nu'
+      - 'tests/Nushell.WindowsRoot.nu'
+      - '.github/workflows/windows-root-regression.yml'
+  pull_request:
+    paths:
+      - 'src/nushell/show-tree.nu'
+      - 'src/nushell/show-tree-format.nu'
+      - 'tests/Nushell.WindowsRoot.nu'
+      - '.github/workflows/windows-root-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-root:
+    runs-on: windows-latest
+    steps:
+      - name: Check out Show-Tree
+        uses: actions/checkout@v5
+
+      - name: Set up Nushell
+        uses: hustcer/setup-nu@v3
+        with:
+          version: '0.115.1'
+
+      - name: Test Windows root path identity and snapshot serialization
+        shell: pwsh
+        run: nu --no-config-file tests/Nushell.WindowsRoot.nu
