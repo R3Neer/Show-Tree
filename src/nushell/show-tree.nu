@@ -3,7 +3,7 @@ use $R3CLI_MODULE
 
 const HELP_CATALOGUE = {
     product: 'Show-Tree'
-    version: '0.1.8'
+    version: '0.1.9'
     description: 'Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters.'
     invocation: 'show-tree'
     groups: []
@@ -26,6 +26,7 @@ const HELP_CATALOGUE = {
         'Files and directories are shown recursively without a depth limit by default.'
         'Hidden and dot-prefixed entries are omitted unless --all / -a is used; the interactive tree shows a reminder when they are omitted.'
         'The hidden-entry reminder is presentation-only and is not written by tree-aware save.'
+        'In Nushell, pipe to clip copy to copy the rendered tree to the system clipboard.'
         'Nushell output is one flat native row per visible node: name, type, size, children and path.'
         'children is a flat list of direct child names, never nested child records.'
         'Representable filtered, sorted and sliced results keep the R3CLI tree as their automatic REPL view.'

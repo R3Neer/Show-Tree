@@ -118,7 +118,7 @@ The extension is never appended automatically. A snapshot stores a versioned NUO
 {
     format: show-tree
     schema_version: 1
-    producer_version: 0.1.8
+    producer_version: 0.1.9
     rows: [...]
     lineage: [...]
 }
