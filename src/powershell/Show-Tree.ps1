@@ -78,7 +78,7 @@ $ui = New-R3Console -Colour auto -Invocation $MyInvocation
 function New-ShowTreeHelpCatalogue {
     [PSCustomObject]@{
         Product = "Show-Tree"
-        Version = "0.1.7"
+        Version = "0.1.8"
         Description = "Displays a recursive size-aware filesystem tree with files by default and explicit visibility filters."
         Invocation = "show-tree"
         Groups = @()

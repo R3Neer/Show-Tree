@@ -149,7 +149,7 @@ jobs:
           let human = ($nu.temp-dir | path join 'show-tree-installed-save.txt')
           show-tree Show-Tree -d 1 | save --force $human
           let human_text = (open --raw $human | ansi strip)
-          if not ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper did not write the human tree' } }
+          if ($human_text | str contains 'SHOW-TREE') { error make { msg: 'installed save wrapper repeated the command name' } }
           if not ($human_text | str contains 'Total size') { error make { msg: 'installed save wrapper lost the tree footer' } }
           if not ($human_text | str contains 'README.md') { error make { msg: 'installed human tree omitted files by default' } }
           if not ($human_text | str contains '📁') { error make { msg: 'installed human-tree save is missing folder glyphs' } }
@@ -185,7 +185,7 @@ jobs:
 
           if (-not (Test-Path -LiteralPath $saved)) { throw 'PowerShell pipeline did not create the output file.' }
           $savedText = Get-Content -LiteralPath $saved -Raw
-          if ($savedText -notmatch 'SHOW-TREE') { throw 'PowerShell pipeline did not receive the tree banner.' }
+          if ($savedText -match '(?m)^\s*SHOW-TREE\s*$') { throw 'PowerShell pipeline received a redundant command banner.' }
           if ($savedText -notmatch 'Total size') { throw 'PowerShell pipeline did not receive the tree footer.' }
           if ($savedText -notmatch 'README\.md') { throw 'PowerShell pipeline output omitted files by default.' }
           if ($savedText -notmatch '📁') { throw 'PowerShell pipeline output is missing folder glyphs.' }
