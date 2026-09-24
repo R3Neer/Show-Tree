@@ -57,7 +57,7 @@ In Nushell, copy the same plain tree to the system clipboard:
 show-tree D:/Tools | clip copy
 ```
 
-`clip copy` also accepts filtered trees. It copies ordinary pipeline values as text.
+`clip copy` also accepts filtered trees. It copies ordinary pipeline values as text. If you enable Nushell's native experimental clipboard, Show-Tree keeps this tree-aware command while `clip paste` comes from Nushell.
 On Windows it uses `clip.exe`; on macOS and Linux it uses an available system clipboard command.
 
 Filtered and sorted trees save exactly the rows that survive the pipeline:
@@ -118,7 +118,7 @@ The extension is never appended automatically. A snapshot stores a versioned NUO
 {
     format: show-tree
     schema_version: 1
-    producer_version: 0.1.9
+    producer_version: 0.1.10
     rows: [...]
     lineage: [...]
 }

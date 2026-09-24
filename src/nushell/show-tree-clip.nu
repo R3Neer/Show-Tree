@@ -19,22 +19,20 @@ export def show-tree-clipboard-text-internal [] {
 }
 
 
-export def "clip copy" [] {
-    metadata access {|meta|
-        let value = (clipboard-text $in $meta)
+export def show-tree-clipboard-copy-internal [value: any, meta: record] {
+    let text = (clipboard-text $value $meta)
 
-        if $nu.os-info.name == 'windows' {
-            $value | ^clip.exe
-        } else if ((which pbcopy | where type == external) | is-not-empty) {
-            $value | ^pbcopy
-        } else if ((which wl-copy | where type == external) | is-not-empty) {
-            $value | ^wl-copy
-        } else if ((which xclip | where type == external) | is-not-empty) {
-            $value | ^xclip -selection clipboard
-        } else if ((which xsel | where type == external) | is-not-empty) {
-            $value | ^xsel --clipboard --input
-        } else {
-            error make { msg: 'No supported clipboard command found (clip.exe, pbcopy, wl-copy, xclip or xsel).' }
-        }
+    if $nu.os-info.name == 'windows' {
+        $text | ^clip.exe
+    } else if ((which pbcopy | where type == external) | is-not-empty) {
+        $text | ^pbcopy
+    } else if ((which wl-copy | where type == external) | is-not-empty) {
+        $text | ^wl-copy
+    } else if ((which xclip | where type == external) | is-not-empty) {
+        $text | ^xclip -selection clipboard
+    } else if ((which xsel | where type == external) | is-not-empty) {
+        $text | ^xsel --clipboard --input
+    } else {
+        error make { msg: 'No supported clipboard command found (clip.exe, pbcopy, wl-copy, xclip or xsel).' }
     }
 }
