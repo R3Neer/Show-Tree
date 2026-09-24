@@ -117,7 +117,7 @@ assert (not ($table_text | str contains '[table')) 'Explicit table output must n
 let saved_tree_path = ($fixture | path join 'saved-tree.txt')
 show-tree $fixture --max-depth 2 | save --force $saved_tree_path
 let saved_tree = (open --raw $saved_tree_path | ansi strip)
-assert ($saved_tree | str contains 'SHOW-TREE') 'Saving a Show-Tree result did not write the human tree banner.'
+assert (not ($saved_tree | str contains 'SHOW-TREE')) 'Saved Show-Tree output repeats the command name.'
 assert ($saved_tree | str contains '├──') 'Saved Show-Tree output is missing tree branch glyphs.'
 assert ($saved_tree | str contains 'nested.txt') 'Saved Show-Tree output lost descendant rows.'
 assert ($saved_tree | str contains 'Total size') 'Saved Show-Tree output is missing the total-size footer.'

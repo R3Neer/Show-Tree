@@ -238,8 +238,6 @@ export def show-tree-build-render-plan-internal [
 
 
 def render-tree-with-ui [value: any, lineage: list<any>, ui: record]: nothing -> nothing {
-    r3cli banner $ui 'SHOW-TREE'
-
     let plan = (show-tree-build-render-plan-internal $value $lineage)
     let roots = $plan.roots
 

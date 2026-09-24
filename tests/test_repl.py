@@ -55,8 +55,10 @@ def run_marked(child: pexpect.spawn, command: str, marker: str) -> str:
 
 
 def assert_tree(output: str, context: str) -> None:
-    if "SHOW-TREE" not in output:
-        raise AssertionError(f"{context} did not render the R3CLI tree:\n{output}")
+    if "SHOW-TREE" in output:
+        raise AssertionError(f"{context} rendered a redundant command banner:\n{output}")
+    if "Total size" not in output:
+        raise AssertionError(f"{context} did not render the size-aware tree:\n{output}")
     if "╭" in output:
         raise AssertionError(f"{context} rendered a Nushell table instead of the R3CLI tree:\n{output}")
 

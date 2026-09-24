@@ -480,8 +480,6 @@ if ($Short) {
     $roots = @($roots | Where-Object { $_.Kind -eq "Folder" })
 }
 
-Write-R3Banner $ui "SHOW-TREE"
-
 if ($roots.Count -eq 0) {
     Write-R3Status $ui warning "No matching paths."
     return
