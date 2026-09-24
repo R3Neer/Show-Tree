@@ -51,6 +51,15 @@ Saving to an ordinary filename writes the same human tree without ANSI colour es
 show-tree D:/Tools | save tree.txt
 ```
 
+In Nushell, copy the same plain tree to the system clipboard:
+
+```nu
+show-tree D:/Tools | clip copy
+```
+
+`clip copy` also accepts filtered trees. It copies ordinary pipeline values as text.
+On Windows it uses `clip.exe`; on macOS and Linux it uses an available system clipboard command.
+
 Filtered and sorted trees save exactly the rows that survive the pipeline:
 
 ```nu
@@ -241,6 +250,7 @@ Show-Tree/
 │   ├── nushell/
 │   │   ├── show-tree.nu
 │   │   ├── show-tree-display.nu
+│   │   ├── show-tree-clip.nu
 │   │   ├── show-tree-format.nu
 │   │   └── show-tree-save.nu
 │   └── powershell/
@@ -261,6 +271,7 @@ The Nushell implementation is split by concern:
 - `show-tree-display.nu`: indexed tree reconstruction and REPL presentation;
 - `show-tree-format.nu`: `.showtree`, `to showtree`, `from showtree`;
 - `show-tree-save.nu`: tree-aware `save` dispatch.
+- `show-tree-clip.nu`: tree-aware `clip copy` dispatch.
 
 R3CLI remains vendored and SHA-verified under `vendor/R3CLI/`.
 

@@ -20,6 +20,7 @@ $showTreeNushell = Join-Path $showTreeRoot 'src\nushell\show-tree.nu'
 $showTreeDisplay = Join-Path $showTreeRoot 'src\nushell\show-tree-display.nu'
 $showTreeFormat = Join-Path $showTreeRoot 'src\nushell\show-tree-format.nu'
 $showTreeSave = Join-Path $showTreeRoot 'src\nushell\show-tree-save.nu'
+$showTreeClip = Join-Path $showTreeRoot 'src\nushell\show-tree-clip.nu'
 $dependencyManifest = Join-Path $showTreeRoot 'dependencies.json'
 $r3cliPowerShellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\powershell'
 $r3cliNushellRoot = Join-Path $showTreeRoot 'vendor\R3CLI\nushell\r3cli'
@@ -27,7 +28,7 @@ $r3cliPowerShell = Join-Path $r3cliPowerShellRoot 'R3CLI.psd1'
 
 $requiredPaths = @($dependencyManifest)
 if ($installPowerShell) { $requiredPaths += $showTreePowerShell }
-if ($installNushell) { $requiredPaths += @($showTreeNushell, $showTreeDisplay, $showTreeFormat, $showTreeSave) }
+if ($installNushell) { $requiredPaths += @($showTreeNushell, $showTreeDisplay, $showTreeFormat, $showTreeSave, $showTreeClip) }
 
 foreach ($requiredPath in $requiredPaths) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
@@ -272,7 +273,10 @@ if ($installPowerShell) {
 }
 
 if ($installNushell) {
-    $nu = Get-Command nu -ErrorAction SilentlyContinue
+    $nu = Get-Command nu.exe -ErrorAction SilentlyContinue
+    if ($null -eq $nu) {
+        $nu = Get-Command nu -ErrorAction SilentlyContinue
+    }
     if ($null -eq $nu) {
         throw "Nushell was not found in PATH."
     }
@@ -290,6 +294,7 @@ if ($installNushell) {
     $nuDisplayPath = $showTreeDisplay.Replace("\", "/").Replace("'", "''")
     $nuFormatPath = $showTreeFormat.Replace("\", "/").Replace("'", "''")
     $nuSavePath = $showTreeSave.Replace("\", "/").Replace("'", "''")
+    $nuClipPath = $showTreeClip.Replace("\", "/").Replace("'", "''")
 
     $nuProfileBlock = @(
         "# >>> Show-Tree >>>"
@@ -297,6 +302,7 @@ if ($installNushell) {
         "use '$nuDisplayPath'"
         "use '$nuFormatPath' ['to showtree' 'from showtree']"
         "use '$nuSavePath' save"
+        "use '$nuClipPath' ['clip copy']"
         ""
         "def help [...rest: string] {"
         "    if ((`$rest | length) == 1) and ((`$rest | first) == 'show-tree') {"

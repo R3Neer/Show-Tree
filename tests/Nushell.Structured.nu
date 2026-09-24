@@ -3,9 +3,11 @@ use std/assert
 const SHOW_TREE = (path self ../src/nushell/show-tree.nu)
 const SHOW_TREE_FORMAT = (path self ../src/nushell/show-tree-format.nu)
 const SHOW_TREE_SAVE = (path self ../src/nushell/show-tree-save.nu)
+const SHOW_TREE_CLIP = (path self ../src/nushell/show-tree-clip.nu)
 use $SHOW_TREE [main]
 use $SHOW_TREE_FORMAT ['to showtree' 'from showtree']
 use $SHOW_TREE_SAVE save
+use $SHOW_TREE_CLIP show-tree-clipboard-text-internal
 
 # Keep this path intentionally short. This test is about the normal table UX,
 # not about forcing Nushell's own width-trimming policy with an artificial UUID path.
@@ -114,6 +116,7 @@ assert (not ($table_text | str contains '[table')) 'Explicit table output must n
 
 # Normal save writes only the human tree. The interactive hidden-entry reminder is
 # deliberately a display-hook concern and must not leak into saved text.
+let copied_tree = (show-tree $fixture --max-depth 2 | show-tree-clipboard-text-internal)
 let saved_tree_path = ($fixture | path join 'saved-tree.txt')
 show-tree $fixture --max-depth 2 | save --force $saved_tree_path
 let saved_tree = (open --raw $saved_tree_path | ansi strip)
@@ -124,7 +127,16 @@ assert ($saved_tree | str contains 'Total size') 'Saved Show-Tree output is miss
 assert (not ($saved_tree | str contains 'Hidden entries are omitted')) 'Saved Show-Tree output leaked the interactive hidden-entry reminder.'
 assert (not ($saved_tree | str contains '╭')) 'Saving a Show-Tree result wrote a Nushell table instead of the tree.'
 
+assert equal ($copied_tree | str trim) ($saved_tree | str trim)
+assert (not ($copied_tree | str contains '╭')) 'Clipboard conversion wrote a Nushell table instead of the tree.'
+assert equal ('ordinary text' | show-tree-clipboard-text-internal | str trim) 'ordinary text'
+
 # Row-preserving transforms remain tree-aware when saved as human text.
+let filtered_copied = (
+    show-tree $fixture --max-depth 2
+    | where name in [alpha nested.txt]
+    | show-tree-clipboard-text-internal
+)
 let filtered_save_path = ($fixture | path join 'filtered-tree.txt')
 show-tree $fixture --max-depth 2
 | where name in [alpha nested.txt]
@@ -134,6 +146,7 @@ assert ($filtered_saved | str contains $alpha_path) 'Filtered save did not promo
 assert ($filtered_saved | str contains 'nested.txt') 'Filtered save lost a retained descendant.'
 assert (not ($filtered_saved | str contains 'beta')) 'Filtered save reintroduced a removed node.'
 assert (not ($filtered_saved | str contains 'Hidden entries are omitted')) 'Filtered save leaked the interactive hidden-entry reminder.'
+assert equal ($filtered_copied | str trim) ($filtered_saved | str trim)
 
 # .showtree is the native persistent snapshot format.
 let snapshot_path = ($fixture | path join 'snapshot.showtree')

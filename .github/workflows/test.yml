@@ -29,6 +29,7 @@ jobs:
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-display.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-format.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-save.nu | if not $in { exit 1 }'
+          nu --no-config-file -c 'nu-check --as-module Show-Tree/src/nushell/show-tree-clip.nu | if not $in { exit 1 }'
           nu --no-config-file -c 'nu-check Show-Tree/install-show-tree.nu | if not $in { exit 1 }'
 
       - name: Test complete default traversal
