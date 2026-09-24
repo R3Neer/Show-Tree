@@ -23,7 +23,9 @@ export def show-tree-clipboard-copy-internal [value: any, meta: record] {
     let text = (clipboard-text $value $meta)
 
     if $nu.os-info.name == 'windows' {
-        $text | ^clip.exe
+        # clip.exe decodes stdin using the console code page, which can corrupt
+        # UTF-8 tree glyphs and non-ASCII names. Read UTF-8 explicitly instead.
+        $text | ^powershell.exe -NoProfile -NonInteractive -Command '$previous = [Console]::InputEncoding; try { [Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd()) } finally { [Console]::InputEncoding = $previous }'
     } else if ((which pbcopy | where type == external) | is-not-empty) {
         $text | ^pbcopy
     } else if ((which wl-copy | where type == external) | is-not-empty) {
@@ -33,6 +35,6 @@ export def show-tree-clipboard-copy-internal [value: any, meta: record] {
     } else if ((which xsel | where type == external) | is-not-empty) {
         $text | ^xsel --clipboard --input
     } else {
-        error make { msg: 'No supported clipboard command found (clip.exe, pbcopy, wl-copy, xclip or xsel).' }
+        error make { msg: 'No supported clipboard command found (powershell.exe, pbcopy, wl-copy, xclip or xsel).' }
     }
 }
