@@ -212,21 +212,6 @@ The Nushell backend requests complete structured `du --long --all` data internal
 
 PowerShell enumerates with `Get-ChildItem -Force` and applies the same policy itself.
 
-## Renderer performance
-
-The Nushell renderer builds indexes for visible paths, lineage, and effective parent groups once per render. It no longer scans all visible rows again for every node just to discover its children, and parent resolution no longer scans the complete lineage for every lookup.
-
-A synthetic flat-tree benchmark on GitHub Actions measured:
-
-| Rows | Previous renderer | Indexed renderer |
-| ---: | ---: | ---: |
-| 501 | ~1.108 s | ~0.503 s |
-| 2,001 | ~11.701 s | ~2.195 s |
-
-A 4× input increase therefore changed from roughly 10.6× runtime growth to about 4.4× end-to-end growth. The isolated render-plan benchmark measured about 146 ms for 2,001 rows and 779 ms for 8,001 rows.
-
-CI enforces both absolute and scaling ceilings. Filesystem traversal is benchmarked separately on Windows. A proposed filename-index optimization for Windows traversal was rejected after measurement because it made the 1,500-file default case slower, about 828 ms to 982 ms on the measured runners. The benchmark, rather than the attractiveness of the data structure on a whiteboard, won that argument.
-
 ## Installation
 
 Nushell:
@@ -288,14 +273,7 @@ R3CLI remains vendored and SHA-verified under `vendor/R3CLI/`.
 
 ## Development
 
-CI targets Nushell 0.115.1 and PowerShell 7. Coverage includes structured rows, filtering/sorting/orphan promotion, `$ans.last`, `.showtree`, raw semantics, real pseudo-terminal rendering, hidden-entry behavior, folder-glyph output, installer repair/idempotence, PowerShell pipeline output, renderer scaling, and Windows traversal performance.
-
-Performance tests live in:
-
-```text
-tests/Nushell.Performance.nu
-tests/Nushell.TraversalPerformance.nu
-```
+CI targets Nushell 0.115.1 and PowerShell 7. Coverage includes structured rows, filtering/sorting/orphan promotion, `$ans.last`, `.showtree`, raw semantics, real pseudo-terminal rendering, hidden-entry behavior, folder-glyph output, installer repair/idempotence, PowerShell pipeline output.
 
 ## Requirements
 
