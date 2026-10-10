@@ -10,20 +10,25 @@ use $R3CLI_MODULE
 const ROOT_GROUP_KEY = '__show_tree_roots__'
 
 
-def format-tree-size [value: any]: nothing -> string {
+def format-tree-size [value: any, complete: bool = true]: nothing -> string {
     let bytes = ($value | into int)
 
+    let unit = if $bytes >= 1099511627776 { 1099511627776 } else if $bytes >= 1073741824 { 1073741824 } else if $bytes >= 1048576 { 1048576 } else if $bytes >= 1024 { 1024 } else { 1 }
+    let scaled = ($bytes | into float) / $unit
+    # A lower bound must not round above the known byte count.
+    let amount = if $complete { $scaled } else { (($scaled * 100 | math floor) / 100) }
+
     if $bytes >= 1099511627776 {
-        return $"((($bytes | into float) / 1099511627776.0) | into string --decimals 2) TiB"
+        return $"($amount | into string --decimals 2) TiB"
     }
     if $bytes >= 1073741824 {
-        return $"((($bytes | into float) / 1073741824.0) | into string --decimals 2) GiB"
+        return $"($amount | into string --decimals 2) GiB"
     }
     if $bytes >= 1048576 {
-        return $"((($bytes | into float) / 1048576.0) | into string --decimals 2) MiB"
+        return $"($amount | into string --decimals 2) MiB"
     }
     if $bytes >= 1024 {
-        return $"((($bytes | into float) / 1024.0) | into string --decimals 2) KiB"
+        return $"($amount | into string --decimals 2) KiB"
     }
 
     $"($bytes) B"
@@ -134,7 +139,8 @@ def tree-prefix [ancestor_last: list<bool>, is_last: bool] {
 
 def render-row-line [ui: record, row: record, prefix: string, root: bool] {
     let label = if $root { $row.path } else { $row.name }
-    let size_text = (format-tree-size $row.size)
+    let complete = ($row.size_complete? | default ($row.type == 'file'))
+    let size_text = (if $complete { '' } else { '≥ ' }) + (format-tree-size $row.size $complete)
 
     if $row.type == 'dir' {
         r3cli line $ui [
@@ -255,7 +261,8 @@ def render-tree-with-ui [value: any, lineage: list<any>, ui: record]: nothing ->
 
     let total = ($roots | reduce --fold 0 {|row, acc| $acc + ($row.size | into int) })
     r3cli line $ui
-    r3cli key-value $ui 'Total size' (format-tree-size $total)
+    let complete = ($roots | all {|row| $row.size_complete? | default ($row.type == 'file') })
+    r3cli key-value $ui 'Total size' ((if $complete { '' } else { '≥ ' }) + (format-tree-size $total $complete))
 }
 
 
@@ -332,6 +339,13 @@ export def show-tree-can-render-internal [meta: record, value: any]: nothing -> 
         return false
     }
     if not ($rows | all {|row| ($row.size | describe) =~ '^(filesize|int|float)' }) {
+        return false
+    }
+
+    if not ($rows | all {|row|
+        let complete = ($row | get --optional size_complete)
+        ($complete == null) or (($complete | describe) == 'bool')
+    }) {
         return false
     }
 

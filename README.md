@@ -84,6 +84,7 @@ The tree is a presentation of native data, not a text-only mode. The public row 
     name: string
     type: 'dir' | 'file'
     size: filesize
+    size_complete: bool
     children: list<string>
     path: string
 }
@@ -189,6 +190,16 @@ PowerShell and Nushell share the same user-facing contract:
 - visible files and directories are included by default;
 - hidden/dot-prefixed entries require `all`;
 - recursion is unlimited unless maximum depth is supplied;
+- maximum depth limits traversal, not entry visibility: direct subfolders at the
+  boundary remain visible without inspecting their contents;
+- `size_complete` is false for unvisited folders and propagates to their
+  ancestors. It describes completeness under the active visibility and file
+  filters, not the total including excluded entries;
+- incomplete sizes and totals render with `≥`; an unvisited folder is `≥ 0 B`,
+  not a known empty folder, and is retained by empty-folder hiding;
+- `.showtree` preserves `size_complete` without changing envelope schema version 1.
+  Older rows without this field have unknown completeness; their directory sizes
+  render conservatively with `≥`;
 - `short` suppresses file rows but preserves directory size accounting;
 - minimum size removes files from output and totals;
 - exclusions are applied before public rows are built;

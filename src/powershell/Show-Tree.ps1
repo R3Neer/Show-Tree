@@ -20,7 +20,8 @@ Shows directories only. Directory sizes still include visible files.
 Excludes matching file paths.
 
 .PARAMETER MaxDepth
-Limits directory recursion. By default recursion is unbounded.
+Limits directory recursion. Boundary subfolders remain visible with incomplete sizes.
+By default recursion is unbounded.
 
 .PARAMETER MinSize
 Excludes files smaller than this logical size.
@@ -89,7 +90,7 @@ function New-ShowTreeHelpCatalogue {
             [PSCustomObject]@{ Label = "-r, --deref / -Dereference"; Description = "Use target metadata for symbolic-link sizes." },
             [PSCustomObject]@{ Label = "-s, --short / -Short"; Description = "Show directories only; directory sizes still include visible files." },
             [PSCustomObject]@{ Label = "-x, --exclude / -Exclude"; Description = "Exclude matching file paths." },
-            [PSCustomObject]@{ Label = "-d, --max-depth / -MaxDepth"; Description = "Limit directory recursion. By default recursion is unbounded." },
+            [PSCustomObject]@{ Label = "-d, --max-depth / -MaxDepth"; Description = "Limit directory recursion; boundary folders remain visible with incomplete sizes." },
             [PSCustomObject]@{ Label = "-m, --min-size / -MinSize"; Description = "Exclude files below this logical size." },
             [PSCustomObject]@{ Label = "-a, --all / -All"; Description = "Include hidden and dot-prefixed entries." },
             [PSCustomObject]@{ Label = "-e, --hide-empty-folders / -HideEmptyFolders"; Description = "Hide directories with no included files." },
@@ -111,15 +112,18 @@ function New-ShowTreeHelpCatalogue {
 }
 
 function Format-TreeSize {
-    param ([long]$Bytes)
+    param ([long]$Bytes, [switch]$LowerBound)
 
     $culture = [Globalization.CultureInfo]::InvariantCulture
-
-    if ($Bytes -ge 1TB) { return "$(([double]$Bytes / 1TB).ToString('F2', $culture)) TiB" }
-    if ($Bytes -ge 1GB) { return "$(([double]$Bytes / 1GB).ToString('F2', $culture)) GiB" }
-    if ($Bytes -ge 1MB) { return "$(([double]$Bytes / 1MB).ToString('F2', $culture)) MiB" }
-    if ($Bytes -ge 1KB) { return "$(([double]$Bytes / 1KB).ToString('F2', $culture)) KiB" }
-    return "$Bytes B"
+    if ($Bytes -lt 1KB) { return "$Bytes B" }
+    $unit, $suffix = if ($Bytes -ge 1TB) { 1TB; 'TiB' }
+        elseif ($Bytes -ge 1GB) { 1GB; 'GiB' }
+        elseif ($Bytes -ge 1MB) { 1MB; 'MiB' }
+        else { 1KB; 'KiB' }
+    $amount = [double]$Bytes / $unit
+    # A lower bound must not round above the known byte count.
+    if ($LowerBound) { $amount = [Math]::Floor($amount * 100) / 100 }
+    return "$($amount.ToString('F2', $culture)) $suffix"
 }
 
 function Test-IsLink {
@@ -206,8 +210,11 @@ function Get-FolderNode {
     $children = [Collections.Generic.List[object]]::new()
     $totalSize = 0L
     $hasFiles = $false
+    $sizeComplete = $true
 
-    $items = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
+    $enumerationErrors = @()
+    $items = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue -ErrorVariable enumerationErrors)
+    if ($enumerationErrors.Count -gt 0) { $sizeComplete = $false }
 
     foreach ($item in $items) {
         if (-not $All -and (Test-IsHiddenEntry $item)) {
@@ -219,6 +226,16 @@ function Get-FolderNode {
         if ($item.PSIsContainer -and -not $isLink) {
             $canDescend = ($null -eq $MaxDepth -or $DepthLevel -lt $MaxDepth)
             if (-not $canDescend) {
+                [void]$children.Add([PSCustomObject]@{
+                    Kind = "Folder"
+                    Name = $item.Name
+                    FullName = $item.FullName
+                    SizeBytes = 0L
+                    SizeComplete = $false
+                    HasFiles = $false
+                    Children = @()
+                })
+                $sizeComplete = $false
                 continue
             }
 
@@ -232,6 +249,7 @@ function Get-FolderNode {
                 -DepthLevel ($DepthLevel + 1)
 
             $totalSize += $childFolder.SizeBytes
+            if (-not $childFolder.SizeComplete) { $sizeComplete = $false }
             if ($childFolder.HasFiles) { $hasFiles = $true }
             [void]$children.Add($childFolder)
             continue
@@ -251,6 +269,7 @@ function Get-FolderNode {
             Name = $item.Name
             FullName = $item.FullName
             SizeBytes = $size
+            SizeComplete = $true
             HasFiles = $true
             Children = @()
         }
@@ -274,6 +293,7 @@ function Get-FolderNode {
         Name = $directory.Name
         FullName = $directory.FullName
         SizeBytes = $totalSize
+        SizeComplete = $sizeComplete
         HasFiles = $hasFiles
         Children = $sortedChildren
     }
@@ -342,6 +362,7 @@ function Get-RootNodes {
                     Name = $item.Name
                     FullName = $item.FullName
                     SizeBytes = $size
+                    SizeComplete = $true
                     HasFiles = $true
                     Children = @()
                 }
@@ -361,7 +382,7 @@ function Get-VisibleChildren {
 
     foreach ($child in $Node.Children) {
         if ($child.Kind -eq "Folder") {
-            if ($HideEmptyFolders -and -not $child.HasFiles) {
+            if ($HideEmptyFolders -and $child.SizeComplete -and -not $child.HasFiles) {
                 continue
             }
             $child
@@ -397,7 +418,8 @@ function Write-TreeNodeLine {
     )
 
     $label = if ($Root) { $Node.FullName } else { $Node.Name }
-    $sizeText = Format-TreeSize $Node.SizeBytes
+    $sizeText = Format-TreeSize $Node.SizeBytes -LowerBound:(-not $Node.SizeComplete)
+    if (-not $Node.SizeComplete) { $sizeText = "≥ $sizeText" }
 
     if ($Node.Kind -eq "Folder") {
         Write-R3Line $Console @(
@@ -505,7 +527,10 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
 
 $grandTotal = ($roots | Measure-Object -Property SizeBytes -Sum).Sum
 Write-R3Line $ui
-Write-R3KeyValue $ui "Total size" (Format-TreeSize ([long]$grandTotal))
+$totalComplete = @($roots | Where-Object { -not $_.SizeComplete }).Count -eq 0
+$totalText = Format-TreeSize ([long]$grandTotal) -LowerBound:(-not $totalComplete)
+if (-not $totalComplete) { $totalText = "≥ $totalText" }
+Write-R3KeyValue $ui "Total size" $totalText
 
 $interactiveInvocation = ($MyInvocation.PipelinePosition -eq $MyInvocation.PipelineLength)
 if (-not $All -and $interactiveInvocation) {

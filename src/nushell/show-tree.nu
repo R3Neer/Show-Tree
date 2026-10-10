@@ -16,7 +16,7 @@ const HELP_CATALOGUE = {
         { label: '-r, --deref / -Dereference', description: 'Use target metadata for symbolic-link sizes.' }
         { label: '-s, --short / -Short', description: 'Show directories only; directory sizes still include visible files.' }
         { label: '-x, --exclude / -Exclude', description: 'Exclude matching file paths.' }
-        { label: '-d, --max-depth / -MaxDepth', description: 'Limit directory recursion. By default recursion is unbounded.' }
+        { label: '-d, --max-depth / -MaxDepth', description: 'Limit directory recursion; boundary folders remain visible with incomplete sizes.' }
         { label: '-m, --min-size / -MinSize', description: 'Exclude files below this logical size.' }
         { label: '-a, --all / -All', description: 'Include hidden and dot-prefixed entries.' }
         { label: '-e, --hide-empty-folders / -HideEmptyFolders', description: 'Hide directories with no included files.' }
@@ -27,7 +27,7 @@ const HELP_CATALOGUE = {
         'Hidden and dot-prefixed entries are omitted unless --all / -a is used; the interactive tree shows a reminder when they are omitted.'
         'The hidden-entry reminder is presentation-only and is not written by tree-aware save.'
         'In Nushell, pipe to clip copy to copy the rendered tree to the system clipboard.'
-        'Nushell output is one flat native row per visible node: name, type, size, children and path.'
+        'Nushell output is one flat native row per visible node: name, type, size, size_complete, children and path.'
         'children is a flat list of direct child names, never nested child records.'
         'Representable filtered, sorted and sliced results keep the R3CLI tree as their automatic REPL view.'
         'Saving to .showtree persists native rows and hierarchy; opening that file restores the Show-Tree view and data.'
@@ -132,7 +132,7 @@ def child-is-visible [child: record, all: bool, platform_visible_names: any] {
     $name in $platform_visible_names
 }
 
-def normalize-du-node [entry: record, all: bool] {
+def normalize-du-node [entry: record, all: bool, max_depth: any, depth: int = 0] {
     # Preserve the lexical identity of filesystem entries. Plain `path expand`
     # resolves Windows junctions such as `C:\Documents and Settings` to their
     # targets (`C:\Users`), which can collapse distinct directory entries onto
@@ -146,6 +146,7 @@ def normalize-du-node [entry: record, all: bool] {
             name: ($full_path | path basename)
             full_name: $full_path
             size_bytes: ($entry.apparent | into int)
+            size_complete: true
             has_files: true
             children: []
         }
@@ -153,21 +154,47 @@ def normalize-du-node [entry: record, all: bool] {
 
     let platform_visible_names = (platform-visible-child-names $full_path $all)
 
+    # du omits subdirectories at the recursion boundary. Enumerate only their
+    # entries, never their contents, so files and folders at that level coexist.
+    let at_limit = ($max_depth != null and $depth == $max_depth)
+    let boundary_entries = if $at_limit {
+        try {
+            if $all { %ls --all --full-paths $full_path } else { %ls --full-paths $full_path }
+        } catch { null }
+    } else { [] }
+    let boundary_directories = (
+        ($boundary_entries | default [])
+        | where type == dir
+        | where {|item| $all or (not (($item.name | path basename) | str starts-with '.')) }
+        | each {|item|
+            {
+                kind: 'Folder'
+                name: ($item.name | path basename)
+                full_name: ($item.name | path expand --no-symlink)
+                size_bytes: 0
+                size_complete: false
+                has_files: false
+                children: []
+            }
+        }
+    )
+
     let directories = (
         ($entry | get --optional directories | default [])
         | where {|child| child-is-visible $child $all $platform_visible_names }
-        | each {|child| normalize-du-node $child $all }
+        | each {|child| normalize-du-node $child $all $max_depth ($depth + 1) }
         | sort-by name --ignore-case
     )
 
     let files = (
         ($entry | get --optional files | default [])
         | where {|child| child-is-visible $child $all $platform_visible_names }
-        | each {|child| normalize-du-node $child $all }
+        | each {|child| normalize-du-node $child $all $max_depth ($depth + 1) }
         | sort-by name --ignore-case
     )
 
-    let children = ($directories ++ $files)
+    let children = if $at_limit { $boundary_directories | sort-by name --ignore-case } else { $directories }
+    let children = ($children ++ $files)
     let size_bytes = ($children | reduce --fold 0 {|child, acc| $acc + $child.size_bytes })
     let has_files = ($children | any {|child| $child.has_files })
 
@@ -176,6 +203,7 @@ def normalize-du-node [entry: record, all: bool] {
         name: ($full_path | path basename)
         full_name: $full_path
         size_bytes: $size_bytes
+        size_complete: ($boundary_entries != null and ($children | all {|child| $child.size_complete }))
         has_files: $has_files
         children: $children
     }
@@ -185,7 +213,7 @@ def visible-children [node: record, short: bool, hide_empty_folders: bool] {
     $node.children
     | where {|child|
         if $child.kind == 'Folder' {
-            (not $hide_empty_folders) or $child.has_files
+            (not $hide_empty_folders) or $child.has_files or (not $child.size_complete)
         } else {
             not $short
         }
@@ -202,6 +230,7 @@ def to-lineage-row [node: record, parent_path: any, child_names: list<string>]: 
         name: (display-name $node)
         type: (if $node.kind == 'Folder' { 'dir' } else { 'file' })
         size: ($node.size_bytes | into filesize)
+        size_complete: $node.size_complete
         children: $child_names
         path: $node.full_name
         parent_path: $parent_path
@@ -276,7 +305,7 @@ export def main [
 
     let roots = (
         $raw
-        | each {|entry| normalize-du-node $entry $all }
+        | each {|entry| normalize-du-node $entry $all $max_depth }
         | where {|root| not ($short and $root.kind == 'File') }
         | sort-by full_name --ignore-case
     )
@@ -287,7 +316,7 @@ export def main [
         | reduce --fold [] {|part, acc| $acc ++ $part }
     )
 
-    let result = ($lineage | select name type size children path)
+    let result = ($lineage | select name type size size_complete children path)
     let render_lineage = $lineage
     let hidden_filtered = (not $all)
 

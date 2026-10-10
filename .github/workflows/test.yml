@@ -76,6 +76,10 @@ jobs:
         shell: pwsh
         run: nu --no-config-file Show-Tree/tests/Nushell.TraversalPerformance.nu
 
+      - name: Test depth boundaries in PowerShell and Nushell
+        shell: pwsh
+        run: ./Show-Tree/tests/PowerShell.DepthBoundary.ps1
+
       - name: Test complete default PowerShell traversal
         shell: pwsh
         run: ./Show-Tree/tests/PowerShell.DefaultComplete.ps1

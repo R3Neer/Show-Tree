@@ -35,7 +35,7 @@ assert ('parent_path' in ($presentation_meta.show_tree_render | columns)) 'Linea
 assert equal ($presentation_meta.show_tree_hidden_filtered? | default false) true
 
 let with_files = (show-tree $fixture --max-depth 2)
-let expected_columns = [name type size children path]
+let expected_columns = [name type size size_complete children path]
 assert equal ($with_files | columns) $expected_columns
 assert (($with_files | length) > 1) 'Structured output should expose one flat row per visible node.'
 
@@ -107,7 +107,7 @@ assert (not ($json | str contains '"depth"')) 'Presentation-only depth must not 
 assert (not ($json | str contains '"tree"')) 'Presentation-only branch labels must not leak into machine output.'
 
 let table_text = ($with_files | table | ansi strip)
-for header in [name type size children path] {
+for header in [name type size size_complete children path] {
     assert ($table_text | str contains $header) $"Explicit table output should expose the ($header) column for ordinary paths."
 }
 assert ($table_text | str contains 'root.txt') 'Explicit table output should show descendant rows directly.'

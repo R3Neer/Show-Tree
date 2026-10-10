@@ -79,6 +79,13 @@ def validate-rows [rows: list<any>] {
         fail 'Every Show-Tree children field must be a list of strings when present.'
     }
 
+    if not ($rows | all {|row|
+        let complete = ($row | get --optional size_complete)
+        ($complete == null) or (($complete | describe) == 'bool')
+    }) {
+        fail 'Every Show-Tree size_complete field must be boolean or null when present.'
+    }
+
     let paths = ($rows | get path)
     if (($paths | uniq | length) != ($paths | length)) {
         fail 'Show-Tree row paths must be unique.'
